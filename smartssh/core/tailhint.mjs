@@ -50,24 +50,28 @@ export function tailIsHintFromCells (cells) {
 }
 
 /**
- * Same-render snapshot: reads cursorX, endCol and the tail cells in ONE pass, so a cursor
- * move between frames cannot pair a new cursor with stale cell styles (designer v19).
- * Production supplies `endCol` (e.g. `line.translateToString(false).replace(/\s+$/,'').length`); without it we fall back to
- * trimming trailing padding by cell content, which is correct but costlier.
+ * Same-render snapshot: reads cursorX and the tail cells in ONE pass, so a cursor move between
+ * frames cannot pair a new cursor with stale cell styles (designer v19).
+ *
+ * There is deliberately no `endCol` parameter. Column boundaries are not UTF-16 string lengths:
+ * ten CJK characters occupy twenty columns, so any caller-derived "end of line" computed from
+ * `translateToString(...).length` under-counts and hides real text after the cursor — a
+ * fail-open. The row is always scanned to `cols` and trailing blank cells are trimmed by cell
+ * content, which is correct for every width.
+ *
  * @param {object} snap
  * @param {number} snap.cursorX
  * @param {number} snap.cols
- * @param {number} [snap.endCol]
  * @param {(col:number)=>object} snap.getCell
+ * @param {number} [snap.endCol] ignored — kept only so an old caller does not crash
  */
 export function tailIsHintFromSnapshot (snap) {
   if (!snap || typeof snap.getCell !== 'function') return false
   const cursorX = Number.isFinite(snap.cursorX) ? snap.cursorX : 0
   const cols = Number.isFinite(snap.cols) ? snap.cols : 0
-  const last = Number.isFinite(snap.endCol) ? Math.min(snap.endCol, cols) : cols
-  if (last <= cursorX) return false          // nothing after the cursor
+  if (cols <= cursorX) return false          // nothing after the cursor
 
   const cells = []
-  for (let col = cursorX; col < last; col++) cells.push(snap.getCell(col))
+  for (let col = cursorX; col < cols; col++) cells.push(snap.getCell(col))
   return tailIsHintFromCells(cells)
 }

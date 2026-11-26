@@ -24,10 +24,8 @@ t('8. plain-object cells ({dim}/{italic}) are accepted too', () => {
   assert.strictEqual(tailIsHintFromCells([{ dim: true }, { dim: false }]), false)
 })
 t('9. snapshot reads cursorX and cells in ONE pass; empty tail => false', () => {
-  const line = ['h', 'i', ' ', '$', ' ', 'g', 'i', 't']
   const getCell = (col) => (col >= 5 ? dim() : plain())
   assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 8, getCell }), true)
-  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 8, cols: 8, getCell }), false)
   assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 8, cols: 8, getCell }), false)
 })
 t('10. snapshot with no getCell => false (never throw)', () => {
@@ -52,10 +50,13 @@ t('13. snapshot: user text after the hint => FALSE', () => {
   const getCell = (col) => (col >= 5 && col <= 10 ? cell('x', true) : col === 11 ? cell('r') : PAD())
   assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 80, getCell }), false)
 })
-t('14. snapshot with endCol (production path) ignores padding entirely', () => {
-  const getCell = (col) => (col >= 5 && col <= 10 ? cell('x', true) : PAD())
-  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 80, endCol: 11, getCell }), true)
-  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 80, endCol: 5, getCell }), false)
+t('14. a caller-supplied endCol cannot change the answer (CJK fail-open guard)', () => {
+  const getCell = (col) => (col >= 5 && col <= 10 ? cell('x', true) : col === 11 ? cell('X') : PAD())
+  const truth = tailIsHintFromSnapshot({ cursorX: 5, cols: 80, getCell })
+  assert.strictEqual(truth, false)
+  for (const bogus of [5, 11, 26, 36]) {
+    assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 80, endCol: bogus, getCell }), truth, 'endCol=' + bogus)
+  }
 })
 t('15. cells: all padding => FALSE (no hint at all)', () => {
   assert.strictEqual(tailIsHintFromCells([PAD(), PAD()]), false)

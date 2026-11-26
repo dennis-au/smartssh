@@ -41,11 +41,11 @@ function snapOf (term, { withEndCol = true } = {}) {
 
 // A. the real case: prompt + dim suggestion, cursor parked at the prompt end
 const a = await build({ hint: 'git status --short' })
-t_('A. real buffer: dim suggestion after cursor => TRUE (endCol path)', () => {
+t_('A. real buffer: dim suggestion after cursor => TRUE', () => {
   assert.strictEqual(a.buffer.active.cursorX, 'hermes@srv:~$ '.length)
   assert.strictEqual(tailIsHintFromSnapshot(snapOf(a)), true)
 })
-t_('B. same buffer without endCol (trailing-padding trim path) => TRUE', () => {
+t_('B. same buffer, trim path (no endCol anywhere) => TRUE', () => {
   assert.strictEqual(tailIsHintFromSnapshot(snapOf(a, { withEndCol: false })), true)
 })
 
@@ -75,6 +75,26 @@ await write(e, 'hermes@srv:~$ ')
 await write(e, '\x1b[80G')                                  // jump to the last column
 t_('F. cursor at row end, only padding after it => FALSE', () => {
   assert.strictEqual(tailIsHintFromSnapshot(snapOf(e, { withEndCol: false })), false)
+})
+
+// F. CJK: wide dim hint followed by normal text must be FALSE (the fail-open product-tester found)
+const f = new Terminal({ cols: 80, rows: 4, allowProposedApi: true })
+await write(f, 'hermes@srv:~$ ')
+await write(f, '\x1b7')
+await write(f, '\x1b[2m' + '中文中文中文中文中文' + '\x1b[22mXX')
+await write(f, '\x1b8')
+t_('G. CJK wide dim hint + normal "XX" after it => FALSE', () => {
+  assert.strictEqual(tailIsHintFromSnapshot(snapOf(f)), false)
+})
+
+// G. CJK wide dim hint alone (padding after) => TRUE
+const g = new Terminal({ cols: 80, rows: 4, allowProposedApi: true })
+await write(g, 'hermes@srv:~$ ')
+await write(g, '\x1b7')
+await write(g, '\x1b[2m' + '中文中文中文中文中文')
+await write(g, '\x1b8')
+t_('H. CJK wide dim hint alone + padding => TRUE', () => {
+  assert.strictEqual(tailIsHintFromSnapshot(snapOf(g)), true)
 })
 
 for (const [s, n] of results) console.log(`${s}  ${n}`)
