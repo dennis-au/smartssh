@@ -1,0 +1,18 @@
+﻿{
+    "run":  13,
+    "run_id":  "45815709203",
+    "status":  "cancelled",
+    "commit":  "a6970ea1c291d82a4360da07e7eba9da7fd748be",
+    "version":  "1.0.238",
+    "steps":  {
+                  "install":  "cancelled",
+                  "tests":  "skipped",
+                  "webpack":  "skipped",
+                  "buildinfo":  "skipped",
+                  "portable":  "skipped",
+                  "hash":  "skipped"
+              },
+    "sha256":  "",
+    "exe":  "",
+    "at":  "2026-11-26T12:09:16Z"
+}
