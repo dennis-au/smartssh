@@ -26,4 +26,5 @@ const results = judgeMetrics(parsed.metrics, buildInfo)
 for (const r of results) console.log(`${r.status.padEnd(8)} ${r.name}  ${r.detail}`)
 const s = summarise(results)
 console.log(`\n${s.pass} pass / ${s.fail} fail / ${s.skip} skipped`)
-process.exit(s.fail ? 2 : 0)
+// "nothing judged" is a failure, not a pass
+process.exit((s.fail || s.pass === 0) ? 2 : 0)

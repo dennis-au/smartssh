@@ -109,6 +109,31 @@ t('missing cases are SKIPPED, not silently passed', () => {
   assert.ok(res.some(x => x.status === 'SKIPPED' && x.name.includes('911x512')))
 })
 
+
+// ---- regressions from product-tester's six fixtures ----
+t('ghost case ids: zero matched cases is a FAIL, not a green run', () => {
+  const bad = { schema: 1, build: good.build, cases: [okCase('683x512x'), okCase('911x512x'), okCase('900-high-splitx')] }
+  const res = judge(bad, buildInfo)
+  assert.ok(res.some(x => x.status === 'FAIL' && x.name.includes('at least one required case')))
+  assert.ok(summarise(res).fail > 0)
+})
+t('trustVisible is required in EVERY case, not only when the statusbar is hidden', () => {
+  const bad = { schema: 1, build: good.build, cases: [okCase('683x512', { chrome: { titlebar: 0, tabs: 28, statusbar: 24 }, trustVisible: undefined }), okCase('911x512'), okCase('900-high-split')] }
+  assert.ok(fails(bad, buildInfo).some(x => x.name.includes('armed state visible somewhere')))
+})
+t('rows must be an integer in 1..200 (6.5 is not a row count)', () => {
+  const bad = { schema: 1, build: good.build, cases: [okCase('683x512', { viewport: { heightPx: 147, rows: 6.5, cols: 78, cellHeightPx: 21 } }), okCase('911x512'), okCase('900-high-split')] }
+  assert.ok(fails(bad, buildInfo).some(x => x.name.includes('rows is an integer')))
+})
+t('negative chrome is rejected', () => {
+  const bad = { schema: 1, build: good.build, cases: [okCase('683x512', { chrome: { titlebar: -3, tabs: 28, statusbar: 0 } }), okCase('911x512'), okCase('900-high-split')] }
+  assert.ok(fails(bad, buildInfo).some(x => x.name.includes('chrome is per-case and non-negative')))
+})
+t('duplicate case ids are a parse error (the second copy cannot hide bad data)', () => {
+  const bad = { schema: 1, build: good.build, cases: [okCase('683x512'), okCase('683x512', { viewport: { heightPx: 1, rows: 1, cols: 1, cellHeightPx: 1 } }), okCase('911x512')] }
+  assert.match(parseMetrics(JSON.stringify(bad)).error, /duplicate case id/)
+})
+
 for (const [s, n] of r) console.log(`${s}  ${n}`)
 const f = r.filter(x => x[0] === 'FAIL').length
 console.log(`\n${r.length - f}/${r.length} passed`)
