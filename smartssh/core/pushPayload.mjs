@@ -1,4 +1,4 @@
-// contract: v44
+// contract: v45
 import { redact } from './redact.mjs'
 
 export const TRIGGERS = Object.freeze(['manual', 'l', 'ask', 'hermes_request'])
@@ -45,6 +45,7 @@ export function buildContextPush (input) {
     const srcLines = windowText.slice(srcSpan.start, srcSpan.end).split('\n').length
     return { rule, start, end, srcSpan, bufferLine, srcLines }
   })
+  masks.sort((a, b) => a.start - b.start)
 
   return { trigger, tab_id, host, range, lines, truncated_lines, redacted_segments: masks.length, text, masks }
 }

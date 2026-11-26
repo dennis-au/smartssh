@@ -1,4 +1,4 @@
-// contract: v44
+// contract: v45
 // redact.mjs — find secret spans in terminal text without changing their surrounding syntax.
 export const RULES = ['env_key', 'bearer', 'url_cred', 'cli_password', 'known_prefix', 'private_key', 'password_prompt']
 export const MULTILINE_RULES = ['private_key']
@@ -18,6 +18,17 @@ const PATTERNS = {
 export function maskSrcLines (input, mask) {
   const { start, end } = mask.srcSpan
   return input.slice(start, end).split('\n').length
+}
+
+export function assertDisjointMasks (masks, text) {
+  const sorted = [...masks].sort((a, b) => a.start - b.start)
+  for (let i = 1; i < sorted.length; i++) {
+    const m = sorted[i]
+    if (m.start < sorted[i - 1].end) {
+      const src = Math.max(0, m.start - 8)
+      throw new Error(`redaction masks overlap at offset ${m.start} in: ${JSON.stringify(text.slice(src, m.start + 8))}`)
+    }
+  }
 }
 
 export function redact (text, opts = {}) {
@@ -61,5 +72,7 @@ export function redact (text, opts = {}) {
     masks.push({ rule, start: offset, end: output.length, srcSpan: { start, end } })
     cursor = end
   }
-  return { text: output + input.slice(cursor), masks }
+  output += input.slice(cursor)
+  assertDisjointMasks(masks, output)
+  return { text: output, masks }
 }
