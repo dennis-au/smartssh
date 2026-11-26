@@ -1,0 +1,18 @@
+﻿{
+    "run":  7,
+    "run_id":  "45812570831",
+    "status":  "success",
+    "commit":  "fa6faa0a4620fd166461fe6b4ae292ff824059fe",
+    "version":  "1.0.238",
+    "steps":  {
+                  "install":  "success",
+                  "tests":  "success",
+                  "webpack":  "success",
+                  "buildinfo":  "success",
+                  "portable":  "success",
+                  "hash":  "success"
+              },
+    "sha256":  "smartssh-1.0.238-portable-x64.exe  83CA7528D48EE7B98F67759136E46D2DE7902124FAE3DA3E7C82D3B50C8A9E43",
+    "exe":  "smartssh-1.0.238-portable-x64.exe 117.6MB",
+    "at":  "2026-11-26T12:26:23Z"
+}
