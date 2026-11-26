@@ -1,4 +1,4 @@
-// contract: v45
+// contract: v47
 // gateInput.mjs — the ONE place that reads a live xterm buffer into gate input.
 // Column-accurate: text is rebuilt from cells (getChars), never sliced by string index,
 // because a JS string index is a UTF-16 unit while cursorX counts terminal columns (CJK = 2).

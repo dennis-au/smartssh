@@ -1,4 +1,4 @@
-// contract: v45
+// contract: v47
 // metrics.mjs — validate and judge the UI measurement file the app writes when SMARTSSH_MEASURE=1.
 // schema 1. Rules come from designer v27 + product-tester's review:
 //  - one flat object cannot describe three window sizes => cases[]

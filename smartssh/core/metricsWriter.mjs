@@ -1,4 +1,4 @@
-// contract: v45
+// contract: v47
 import { CASE_IDS, SCHEMA } from './metrics.mjs'
 
 export function measurementToCase (m) {

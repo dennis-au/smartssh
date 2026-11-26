@@ -1,4 +1,4 @@
-// contract: v45
+// contract: v47
 import { redact } from './redact.mjs'
 
 export const TRIGGERS = Object.freeze(['manual', 'l', 'ask', 'hermes_request'])
