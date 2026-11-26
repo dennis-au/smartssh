@@ -10,8 +10,10 @@ import { stripBom } from './buildinfo.mjs'
 
 export const SCHEMA = 1
 export const CASE_IDS = ['683x512', '911x512', '900-high-split']
-export const BAR_STATES = ['proposed', 'counting', 'executing', 'rejected', 'aborted', 'expired', 'settling', 'unknown', 'idle']
-export const TERMINAL_STATES = ['rejected', 'aborted', 'expired']
+// designer v26 SPEC OF RECORD: exactly nine, in this spelling
+export const BAR_STATES = ['proposed', 'counting', 'settling', 'executing', 'exited', 'rejected', 'aborted', 'expired', 'offline']
+// states after which the bar collapses to height 0 (8s) but stays mounted
+export const TERMINAL_STATES = ['exited', 'rejected', 'aborted', 'expired']
 export const GATES = ['clean', 'prompt_dirty', 'settling', 'alt_screen', 'continuation']
 export const TRUST = ['off', 'watch', 'propose', 'readonly_auto']
 
@@ -57,6 +59,7 @@ export function judgeMetrics (m, buildInfo) {
     add(`${id} gate is one of five`, GATES.includes(c.gate), `gate=${c.gate}`)
     add(`${id} trust is one of four`, TRUST.includes(c.trust), `trust=${c.trust}`)
     add(`${id} autoRun is on/off`, c.autoRun === 'on' || c.autoRun === 'off', `autoRun=${c.autoRun}`)
+    add(`${id} bar state is one of nine`, BAR_STATES.includes(c.bar?.state), `state=${c.bar?.state}`)
     add(`${id} bar has no proposal => not mounted`, c.barMountedWhenNoProposal === false, `mounted=${c.barMountedWhenNoProposal}`)
 
     // statusbar hidden => armed state must be visible somewhere else

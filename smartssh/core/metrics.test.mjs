@@ -11,7 +11,7 @@ const okCase = (id, over = {}) => ({
   theme: 'dark',
   chrome: { titlebar: 0, tabs: 28, statusbar: 0 },
   viewport: { heightPx: 147, rows: 7, cols: 78, cellHeightPx: 21 },
-  bar: { state: 'idle', mounted: false, heightPx: 0 },
+  bar: { state: 'offline', mounted: false, heightPx: 0 },
   panes: [{ id: 'only', heightPx: 183, compact: false, barMinHeightPx: 76 }],
   gate: 'clean',
   gateReason: 'clean',
@@ -93,6 +93,15 @@ t('gate/trust/autoRun outside their domains => FAIL', () => {
   bad.cases[0].gate = 'unknown'; bad.cases[0].trust = 'auto'; bad.cases[0].autoRun = true
   const names = fails(bad, buildInfo).map(x => x.name).join('|')
   assert.ok(names.includes('gate is one of five') && names.includes('trust is one of four') && names.includes('autoRun'), names)
+})
+t('bar.state must be one of the nine v26 values', () => {
+  const bad = JSON.parse(JSON.stringify(good)); bad.cases[0].bar.state = 'idle'
+  assert.ok(fails(bad, buildInfo).some(x => x.name.includes('bar state is one of nine')))
+  for (const st of ['proposed','counting','settling','executing','exited','rejected','aborted','expired','offline']) {
+    const ok = JSON.parse(JSON.stringify(good)); ok.cases[0].bar.state = st
+    if (['exited','rejected','aborted','expired'].includes(st)) ok.cases[0].barCollapsed = { afterMs: 8000, heightPx: 0, stillMounted: true, display: 'flex' }
+    assert.deepStrictEqual(fails(ok, buildInfo), [], st)
+  }
 })
 t('missing cases are SKIPPED, not silently passed', () => {
   const bad = JSON.parse(JSON.stringify(good)); bad.cases = [bad.cases[0]]
