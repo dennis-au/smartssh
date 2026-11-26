@@ -3,6 +3,8 @@ on:
   push:
     branches: [smartssh]
   workflow_dispatch:
+env:
+  SMARTSSH_VERSION: "1.0.238"
 jobs:
   portable:
     runs-on: windows-2022
@@ -21,11 +23,29 @@ jobs:
           yarn --network-timeout 1000000
           cd ..
           yarn --network-timeout 1000000
+      - name: Core tests (pure, no xterm dependency)
+        run: |
+          node smartssh/core/selftest.mjs
+          node smartssh/core/diag.test.mjs
       - name: Webpack build
         run: yarn run build
+      - name: Build info
+        shell: powershell
+        run: |
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          $info = [ordered]@{
+            base    = "$env:SMARTSSH_VERSION"
+            build   = "sms.${{ github.run_number }}"
+            commit  = $sha
+            builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          }
+          New-Item -ItemType Directory -Force -Path extras | Out-Null
+          $info | ConvertTo-Json | Out-File -Encoding utf8 extras/smartssh-buildinfo.json
+          Get-Content extras/smartssh-buildinfo.json
       - name: Portable exe
         run: node scripts/build-smartssh.mjs
       - name: Hash + version
+        shell: powershell
         run: |
           Get-ChildItem dist -Filter *portable*.exe | ForEach-Object {
             $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
@@ -39,4 +59,5 @@ jobs:
           path: |
             dist/*portable*.exe
             artifact-sha256.txt
+            extras/smartssh-buildinfo.json
           retention-days: 90

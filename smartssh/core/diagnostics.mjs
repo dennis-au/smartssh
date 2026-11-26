@@ -9,7 +9,7 @@ export const DIAG_KEYS = ['version', 'sha256', 'trust', 'gate', 'errors']
 export const MAX_BYTES = 2048
 const VERSION_RE = /^\d+\.\d+\.\d+ · sms\.\d+ · [0-9a-f]{7,40}$/
 const STATUS_MAP = {
-  401: 'token_invalid', 409: 'stale_approval', 410: 'proposal_dead',
+  401: 'token_invalid', 403: 'token_invalid', 409: 'stale_approval', 410: 'proposal_dead',
   413: 'truncation_refused', 429: 'rate_limited',
 }
 
@@ -38,10 +38,16 @@ export function buildDiagnostics (input = {}) {
   const sha256 = /^[0-9a-f]{64}$/i.test(String(src.sha256 ?? '')) ? String(src.sha256).toUpperCase() : 'unpacked/dev build'
   const trust = TRUST.includes(src.trust) ? src.trust : 'off'
   const gate = GATE.includes(src.gate) ? src.gate : 'prompt_dirty'
-  const errors = []
+  // v16: ring buffer of the last 3 DISTINCT codes — dedupe keeps the LAST position,
+  // output oldest -> newest, so the final element is always the most recent one.
+  const seen = []
   for (const raw of Array.isArray(src.errors) ? src.errors : []) {
     const code = toErrorCode(raw)
-    if (code && !errors.includes(code) && errors.length < 3) errors.push(code)
+    if (!code) continue
+    const at = seen.indexOf(code)
+    if (at !== -1) seen.splice(at, 1)
+    seen.push(code)
   }
+  const errors = seen.slice(-3)
   return JSON.stringify({ version, sha256, trust, gate, errors })
 }

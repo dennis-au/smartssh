@@ -10,9 +10,23 @@ const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 
 const electronInfo = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../node_modules/electron/package.json')))
 
-export let version = childProcess.execSync('git describe --tags', { encoding:'utf-8' })
-version = version.substring(1).trim()
-version = version.replace('-', '-c')
+// SmartSSH: a build snapshot has no tags, so `git describe` throws and takes every
+// importer (build-native, build-smartssh) down with it. Version now comes from the
+// environment first; the tag path is kept for real upstream checkouts.
+function resolveVersion () {
+    if (process.env.SMARTSSH_VERSION) {
+        return process.env.SMARTSSH_VERSION.trim()
+    }
+    try {
+        return childProcess
+            .execSync('git describe --tags', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] })
+            .substring(1).trim().replace('-', '-c')
+    } catch (e) {
+        return '0.0.0-dev'
+    }
+}
+
+export let version = resolveVersion()
 
 if (version.includes('-c')) {
     version = semver.inc(version, 'prepatch').replace('-0', `-nightly.${process.env.REV ?? 0}`)

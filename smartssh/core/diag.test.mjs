@@ -35,7 +35,7 @@ t('SPEC: 5xx and 429 are different codes (wait vs look at relay)', () => {
   assert.notStrictEqual(toErrorCode({ status: 500 }), toErrorCode({ status: 429 }))
 })
 t('SPEC: 4xx not in the table is not an error code', () => {
-  for (const s of [400, 403, 404, 405, 422]) assert.strictEqual(toErrorCode({ status: s }), null, String(s))
+  for (const s of [400, 404, 405, 422]) assert.strictEqual(toErrorCode({ status: s }), null, String(s))
 })
 
 // ---- payload shape ----
@@ -57,9 +57,21 @@ t('extra properties never survive', () => {
   const s = buildDiagnostics({ version: V, token: 'ghp_X', scrollback: 'export K=sk-Y', env: { PASSWORD: 'hunter2' } })
   for (const c of ['ghp_X', 'sk-Y', 'hunter2', 'PASSWORD']) assert.ok(!s.includes(c), c)
 })
-t('errors: deduped, max 3, order preserved', () => {
+t('v16 ring buffer: last 3 distinct, dedupe keeps LAST position, oldest -> newest', () => {
   const got = o({ errors: [{ status: 401 }, { status: 401 }, { type: 'aborted', reason: 'dispatch_timeout' }, { status: 429 }, { status: 500 }] }).errors
-  assert.deepStrictEqual(got, ['token_invalid', 'dispatch_timeout', 'rate_limited'])
+  assert.deepStrictEqual(got, ['dispatch_timeout', 'rate_limited', 'server_error'])
+})
+t('v16 ring buffer: a repeat moves the code to the end (last element = newest)', () => {
+  const got = o({ errors: [{ status: 401 }, { status: 409 }, { status: 401 }] }).errors
+  assert.deepStrictEqual(got, ['stale_approval', 'token_invalid'])
+})
+t('v16 ring buffer: caps at 3', () => {
+  const got = o({ errors: [{ status: 401 }, { status: 409 }, { status: 410 }, { status: 429 }] }).errors
+  assert.deepStrictEqual(got, ['stale_approval', 'proposal_dead', 'rate_limited'])
+})
+t('v16: 403 collapses into token_invalid (same remedy as 401)', () => {
+  assert.strictEqual(toErrorCode({ status: 403 }), 'token_invalid')
+  assert.strictEqual(toErrorCode({ status: 401 }), 'token_invalid')
 })
 t('trust four values, gate five values, fallbacks off/prompt_dirty', () => {
   assert.strictEqual(TRUST.length, 4); assert.strictEqual(GATE.length, 5)
