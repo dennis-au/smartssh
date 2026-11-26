@@ -52,7 +52,7 @@ export function isAtPrompt (s) {
   // must block) or a shell-drawn hint such as zsh-autosuggestions (must not block).
   // The caller decides by inspecting the CELLS (dim/italic/suggestion colour); default is
   // fail-closed, so a guess can only ever cost an auto-run, never cause one.
-  if (tail.trimEnd() !== '' && !tailIsHint) return { gate: GATE.DIRTY, reason: 'text_after_cursor' }
+  if (tail.trimEnd() !== '' && !tailIsHint) return { gate: GATE.DIRTY, reason: 'typed_input' }
 
   return { gate: GATE.CLEAN, reason: 'clean' }
 }

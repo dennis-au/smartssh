@@ -11,7 +11,7 @@ const greason = (o) => isAtPrompt({ token: '$ ', tokenTrusted: true, cursorX: 12
 t('clean prompt', () => assert.strictEqual(g({}), 'clean'))
 t('typed text => prompt_dirty', () => assert.strictEqual(g({ line: 'user@srv:~$ rm -rf /tmp/art', cursorX: 24 }), 'prompt_dirty'))
 t('text after cursor => prompt_dirty (reason text_after_cursor)', () => {
-  assert.strictEqual(greason({ line: 'user@srv:~$ rm -rf x', cursorX: 12 }), 'text_after_cursor') })
+  assert.strictEqual(greason({ line: 'user@srv:~$ rm -rf x', cursorX: 12 }), 'typed_input') })
 t('alt screen => alt_screen', () => assert.strictEqual(g({ altScreen: true }), 'alt_screen'))
 t('selection => prompt_dirty/selection', () => assert.strictEqual(greason({ selection: true }), 'selection'))
 t('scrolled => prompt_dirty/scrolled', () => assert.strictEqual(greason({ viewportY: 3, baseY: 9 }), 'scrolled'))
