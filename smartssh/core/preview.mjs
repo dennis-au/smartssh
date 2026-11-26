@@ -1,4 +1,4 @@
-// contract: v52
+// contract: v53
 const INVISIBLES = /[\u00AD\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/gu
 const BIDI = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/u
 
@@ -41,11 +41,17 @@ export function scanInvisibles (text) {
     deception,
     suspicious,
     legitimate,
-    total: deception + suspicious,
+    total: deception + suspicious, // User-facing count; excludes legitimate characters.
+    rawTotal: deception + suspicious + legitimate, // Diagnostics only.
     zeroWidth,
     bidi,
     codePoints: [...codePoints].sort(),
   }
+}
+
+export function payloadSeverity (payload) {
+  if (payload?.masks?.some(mask => mask.invisibleInside > 0)) return 'deception'
+  return scanInvisibles(previewText(payload)).suspicious > 0 ? 'suspicious' : 'none'
 }
 
 // display is for rendering only. The clipboard source is always previewText(payload),

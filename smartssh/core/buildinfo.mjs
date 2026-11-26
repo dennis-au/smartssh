@@ -1,4 +1,4 @@
-// contract: v52
+// contract: v53
 // buildinfo.mjs — consumer side of extras/smartssh-buildinfo.json.
 // Producer (CI) now writes BOM-free, but the consumer must not depend on that: a single
 // `Out-File` added later would otherwise make About silently fall back to "dev", which is the

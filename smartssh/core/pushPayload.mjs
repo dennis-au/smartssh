@@ -1,4 +1,5 @@
-// contract: v52
+// contract: v53
+import { payloadSeverity } from './preview.mjs'
 import { maskSrcLines, redact } from './redact.mjs'
 
 export const TRIGGERS = Object.freeze(['manual', 'l', 'ask', 'hermes_request'])
@@ -43,7 +44,12 @@ export function buildContextPush (input) {
   })
   masks.sort((a, b) => a.start - b.start)
 
-  return { trigger, tab_id, host, range, lines, truncated_lines, redacted_segments: masks.length, text, masks }
+  const invisible_escalation = masks.filter(mask => mask.invisibleInside > 0).length
+  const severity = payloadSeverity({ text, masks })
+  return {
+    trigger, tab_id, host, range, line_count: lines.length, truncated_lines,
+    redacted_segments: masks.length, invisible_escalation, severity, text, masks,
+  }
 }
 
 export function maskBufferLine (push, mask) {

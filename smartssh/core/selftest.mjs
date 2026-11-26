@@ -1,3 +1,4 @@
+// contract: v53
 import assert from 'node:assert'
 import { isAtPrompt, GATE } from './gate.mjs'
 import { createSettler } from './settle.mjs'

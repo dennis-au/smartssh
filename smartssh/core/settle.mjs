@@ -1,4 +1,4 @@
-// contract: v52
+// contract: v53
 // SmartSSH settler — pure, clock-injected. No xterm, no timers.
 // Two gates after a feed: (a) output must have come back, (b) a token-terminated line
 // must have been rendered. Only then does the quiet window decide.

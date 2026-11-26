@@ -1,4 +1,4 @@
-// contract: v41
+// contract: v53
 import assert from 'node:assert/strict'
 import { buildContextPush, maskBufferLine, MAX_LINES, TRIGGERS } from './pushPayload.mjs'
 
@@ -39,7 +39,7 @@ const tests = [
     assert.equal(payload.tab_id, input.tab_id)
     assert.equal(payload.host, input.host)
     assert.deepEqual(payload.range, input.range)
-    assert.deepEqual(payload.lines, input.lines)
+    assert.equal(payload.line_count, 10)
     assert.equal(payload.text, input.lines.join('\n').replace('example-token', '***'))
     assert.equal(payload.masks.length, 1)
     assert.equal(payload.redacted_segments, payload.masks.length)
@@ -66,22 +66,22 @@ const tests = [
     const input = largeSample()
     const payload = buildContextPush({ ...input, text: input.lines.join('\n') })
     assert.equal(MAX_LINES, 200)
-    assert.equal(payload.lines.length, 200)
-    assert.equal(payload.lines[0], 'L50')
+    assert.equal(payload.line_count, 200)
+    assert.deepEqual(payload.range, input.range)
     assert.equal(payload.truncated_lines, 50)
-    assert.deepEqual(payload.lines, input.lines.slice(50))
     assert.deepEqual(payload.text.split('\n'), input.lines.slice(50))
     assert.equal(input.lines.length, 250)
   }],
   ['ignores legacy text even when it has 999 lines', () => {
     const lines = ['first', 'second', 'third']
     const push = buildContextPush({ ...withLines(lines), text: Array(999).fill('bogus').join('\n') })
+    assert.equal(push.line_count, 3)
     assert.deepEqual(push.text.split('\n'), lines)
   }],
   ['five-line PEM collapses to a single mask', () => {
     const push = buildContextPush(withLines(['before', ...pem, 'after']))
     assert.equal(push.text, 'before\n***\nafter')
-    assert.ok(push.text.split('\n').length < push.lines.length)
+    assert.equal(push.line_count, 7)
     assert.equal(push.redacted_segments, 1)
     assert.equal(push.redacted_segments, push.masks.length)
     assert.equal(push.masks.length, 1)
@@ -107,15 +107,46 @@ const tests = [
     assert.equal(maskBufferLine(push, push.masks[1]), 56)
     assertMaskSlices(push)
   }],
-  ['push has no windowText or undefined values and carries complete masks', () => {
+  ['push has no raw window or undefined values and carries complete masks', () => {
     const push = buildContextPush(withLines([...pem, 'DEMO_TOKEN=example-token']))
-    assert.ok(!Object.hasOwn(push, 'windowText'))
+    const keys = Object.keys(push)
+    for (const key of ['lines', 'windowText', 'lines_redacted']) assert.ok(!keys.includes(key))
+    assert.ok(keys.includes('line_count'))
     assert.deepEqual(push, JSON.parse(JSON.stringify(push)))
     assert.equal(push.masks.length, 2)
     for (const mask of push.masks) {
       assert.deepEqual(Object.keys(mask).sort(), ['bufferLine', 'end', 'invisibleInside', 'rule', 'srcLines', 'srcSpan', 'start'])
       assert.equal(mask.invisibleInside, 0)
     }
+  }],
+  ['serialized payload does not carry the raw bearer canary', () => {
+    const canary = 'CANARY_bearer_fixture_7890'
+    const payload = buildContextPush(withLines(['a', `Authorization: Bearer ${canary}`, 'c']))
+    assert.equal(payload.text, 'a\nAuthorization: Bearer ***\nc')
+    assert.ok(!JSON.stringify(payload).includes(canary))
+  }],
+  ['serialized payload hides the split token and its mask escalates severity', () => {
+    const suffix = 'CANARY_split_fixture_7890'
+    const canary = `ghp_\u200B${suffix}`
+    const payload = buildContextPush(withLines(['a', canary, 'c']))
+    assert.equal(payload.text, 'a\n***\nc')
+    const serialized = JSON.stringify(payload)
+    assert.ok(!serialized.includes(canary))
+    assert.ok(!serialized.includes(suffix))
+    assert.deepEqual(payload.masks.map(({ invisibleInside }) => invisibleInside), [1])
+    assert.equal(payload.invisible_escalation, 1)
+    assert.equal(payload.severity, 'deception')
+  }],
+  ['escalation counts masks, not their individual invisibles', () => {
+    const payload = buildContextPush(withLines(['ghp_\u200B\u200Bfixture', 'sk-\u200Bfixture', 'AKIAfixture']))
+    assert.deepEqual(payload.masks.map(({ invisibleInside }) => invisibleInside), [2, 1, 0])
+    assert.equal(payload.invisible_escalation, 2)
+    assert.equal(payload.severity, 'deception')
+  }],
+  ['an emoji ZWJ alone does not increase severity', () => {
+    const payload = buildContextPush(withLines(['👩‍💻']))
+    assert.equal(payload.invisible_escalation, 0)
+    assert.equal(payload.severity, 'none')
   }],
   ['range off by one throws', () => {
     assert.throws(() => buildContextPush({ ...sample(), range: { fromLine: 101, toLine: 109, at } }), rangeError)
@@ -201,9 +232,9 @@ const tests = [
     assert.deepEqual(payload.masks.map(({ srcSpan }) => line.slice(srcSpan.start, srcSpan.end)), ['fixture-a\u200B', 'fixture-b'])
     assertMaskSlices(payload)
   }],
-  ['both counters are present even when zero', () => {
+  ['all counters are present even when zero', () => {
     const payload = buildContextPush({ ...sample(), enabledRules: [] })
-    for (const key of ['truncated_lines', 'redacted_segments']) {
+    for (const key of ['truncated_lines', 'redacted_segments', 'invisible_escalation']) {
       assert.ok(Object.hasOwn(payload, key))
       assert.equal(payload[key], 0)
     }

@@ -1,4 +1,4 @@
-// contract: v52
+// contract: v53
 // SmartSSH gate — pure functions, zero xterm dependency (headless-runnable).
 // gate values are the frozen five: clean | prompt_dirty | settling | alt_screen | continuation
 // reason is free-form (data-gate-reason) so remediation text can differ per cause.
