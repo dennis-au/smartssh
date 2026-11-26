@@ -34,6 +34,33 @@ t('10. snapshot with no getCell => false (never throw)', () => {
   assert.strictEqual(tailIsHintFromSnapshot(null), false)
   assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 0, cols: 4 }), false)
 })
+
+// ---- v21: real-row padding (product-tester's 4 snapshot cases) ----
+const cell = (chars, dim = false, italic = false) => ({ getChars: () => chars, isDim: () => dim, isItalic: () => italic })
+const PAD = () => cell('', false, false)
+
+t('11. snapshot: hint followed by row padding => TRUE (padding is not user text)', () => {
+  const getCell = (col) => (col >= 5 && col <= 10 ? cell('x', true) : PAD())
+  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 80, getCell }), true)
+})
+t('12. snapshot: hint with an internal space => TRUE', () => {
+  const text = 'git commit -m "a b"'
+  const getCell = (col) => cell(text[col - 5] ?? '', true)
+  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 80, getCell }), true)
+})
+t('13. snapshot: user text after the hint => FALSE', () => {
+  const getCell = (col) => (col >= 5 && col <= 10 ? cell('x', true) : col === 11 ? cell('r') : PAD())
+  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 80, getCell }), false)
+})
+t('14. snapshot with endCol (production path) ignores padding entirely', () => {
+  const getCell = (col) => (col >= 5 && col <= 10 ? cell('x', true) : PAD())
+  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 80, endCol: 11, getCell }), true)
+  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 80, endCol: 5, getCell }), false)
+})
+t('15. cells: all padding => FALSE (no hint at all)', () => {
+  assert.strictEqual(tailIsHintFromCells([PAD(), PAD()]), false)
+})
+
 for (const [s, n] of r) console.log(`${s}  ${n}`)
 const f = r.filter(x => x[0] === 'FAIL').length
 console.log(`\n${r.length - f}/${r.length} passed`)
