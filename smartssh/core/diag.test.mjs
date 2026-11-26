@@ -25,15 +25,21 @@ t('SPEC: all 15 producer rows map exactly', () => {
   ]
   for (const [input, want] of rows) assert.strictEqual(toErrorCode(input), want, JSON.stringify(input))
 })
-t('SPEC: exactly eleven codes, nothing outside the set', () => {
+t('SPEC: exactly twelve codes, nothing outside the set', () => {
   assert.deepStrictEqual(ERROR_CODES, [
     'token_invalid', 'stale_approval', 'proposal_dead', 'truncation_refused', 'rate_limited',
     'server_error', 'dispatch_failed', 'dispatch_timeout', 'session_replaced', 'transport_unknown',
-    'confirm_mismatch',
+    'confirm_mismatch', 'audit_inconsistent',
   ])
   for (const c of ERROR_CODES) assert.strictEqual(toErrorCode(c), c)
   for (const bad of ['exit_unknown', 'idempotent_replay', 'aborted:dispatch_timeout', 'exit_code:null', 'nope', 'mismatch']) {
     assert.strictEqual(toErrorCode(bad), null, bad)
+  }
+})
+t('SPEC: audit_inconsistent is a local code, not an HTTP status mapping', () => {
+  assert.strictEqual(toErrorCode({ status: 500 }), 'server_error')
+  for (const status of [400, 401, 403, 404, 409, 410, 413, 422, 429, 500, 502, 503]) {
+    assert.notStrictEqual(toErrorCode({ status }), 'audit_inconsistent', String(status))
   }
 })
 t('SPEC: 5xx and 429 are different codes (wait vs look at relay)', () => {

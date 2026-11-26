@@ -1,11 +1,11 @@
 // contract: v53
-// "Copy diagnostics" — designer v16, extended in v39. Eleven codes, or null.
+// "Copy diagnostics" — designer v16, extended in v39. Twelve codes, or null.
 export const TRUST = Object.freeze(['off', 'watch', 'propose', 'readonly_auto'])
 export const GATE = Object.freeze(['clean', 'prompt_dirty', 'settling', 'alt_screen', 'continuation'])
 export const ERROR_CODES = Object.freeze([
   'token_invalid', 'stale_approval', 'proposal_dead', 'truncation_refused', 'rate_limited',
   'server_error', 'dispatch_failed', 'dispatch_timeout', 'session_replaced', 'transport_unknown',
-  'confirm_mismatch',
+  'confirm_mismatch', 'audit_inconsistent',
 ])
 export const DIAG_KEYS = ['version', 'sha256', 'trust', 'gate', 'errors']
 export const MAX_BYTES = 2048

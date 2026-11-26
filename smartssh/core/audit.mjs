@@ -9,7 +9,7 @@ const PATTERNS = [
   ['akia', /\bAKIA[A-Za-z0-9_-]{8,}/dgi],
   ['xoxb', /\bxoxb-[A-Za-z0-9_-]{8,}/dgi],
   ['bearer', /\bBearer\s+(\S{8,})/dgi],
-  ['password_prompt', /(?:^|\n)[ \t]*[^\n:]*password[^:\n]*:[ \t]*(\S+)/dgi],
+  ['password_prompt', /(?:^|\n)[ \t]*[^\n:]*password[^:\n]*:[ \t]*(\S.*)/dgi],
   ['env_key', ASSIGNMENT_PATTERN],
 ]
 
@@ -53,7 +53,15 @@ function scanSpans (text, { stripped, map }, masks, patterns) {
       }
     }
   }
-  const covers = index => masks.some(({ srcStart, srcEnd }) => srcStart <= index && index < srcEnd)
+  // Accept the three shapes callers already build: {srcSpan:{start,end}}, {srcStart,srcEnd},
+// {start,end}. Coverage is always in source coordinates.
+const bounds = m => m.srcSpan
+  ? [m.srcSpan.start, m.srcSpan.end]
+  : (typeof m.srcStart === 'number' ? [m.srcStart, m.srcEnd] : [m.start, m.end])
+const covers = index => masks.some(m => {
+  const [s, e] = bounds(m)
+  return typeof s === 'number' && typeof e === 'number' && s <= index && index < e
+})
   return [...findings.values()].sort((a, b) => a.index - b.index).map(({ kind, index, end, normalisedSource }) => ({
     span: { kind, index, end, covered: covers(index) },
     // A projected mask contains the normalised start iff the original mask
@@ -62,7 +70,6 @@ function scanSpans (text, { stripped, map }, masks, patterns) {
   }))
 }
 
-const unmasked = ({ span, normalisedCovered }) => !span.covered && !normalisedCovered
 const inconsistent = ({ span, normalisedCovered }) => span.covered !== normalisedCovered
 const spanOf = ({ span }) => span
 const credentials = (text, masks) => scanSpans(text, stripInvisible(text), masks, PATTERNS)
@@ -72,25 +79,16 @@ export function auditSpans (text, masks) {
 }
 
 export function auditUnmasked (text, masks) {
-  return credentials(text, masks).filter(unmasked).map(spanOf)
+  return auditSpans(text, masks).filter(span => !span.covered)
 }
 
 export function auditInconsistent (text, masks) {
   return credentials(text, masks).filter(inconsistent).map(spanOf)
 }
 
-// Payload consumers need all tiers; reuse the same scans and normalisation.
-export function auditCoverage (text, masks) {
+export function auditHighEntropyCount (text, masks) {
   const domain = stripInvisible(text)
   const findings = scanSpans(text, domain, masks, PATTERNS)
-  const highEntropyCount = scanSpans(text, domain, masks, ENTROPY_PATTERNS).filter(finding => {
-    if (!unmasked(finding)) return false
-    const { index, end } = finding.span
-    return !findings.some(({ span }) => index < span.end && span.index < end)
-  }).length
-  return {
-    inconsistent: findings.filter(inconsistent).map(spanOf),
-    uncovered: findings.filter(unmasked).map(spanOf),
-    highEntropyCount,
-  }
+  return scanSpans(text, domain, masks, ENTROPY_PATTERNS).filter(({ span: { covered, index, end } }) =>
+    !covered && !findings.some(({ span }) => index < span.end && span.index < end)).length
 }

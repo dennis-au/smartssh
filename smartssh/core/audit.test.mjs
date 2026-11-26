@@ -46,9 +46,29 @@ const tests = [
     const index = 'Bearer '.length
     for (const [srcStart, srcEnd, covered] of [[index, index + 1, true], [index + 1, text.length, false]]) {
       const masks = [{ srcStart, srcEnd }]
-      assert.deepEqual(auditUnmasked(text, masks), [])
+      assert.deepEqual(auditUnmasked(text, masks), covered ? [] : [{ kind: 'bearer', index, end: text.length, covered }])
       assert.deepEqual(auditInconsistent(text, masks), [{ kind: 'bearer', index, end: text.length, covered }])
     }
+  }],
+  ['a PEM mask covers the header and a nested password value', () => {
+    const text = `${pemHeader}\nPassword: hunter3\n-----END OPENSSH PRIVATE KEY-----`
+    const { masks } = redact(text)
+    assert.deepEqual(masks.map(({ rule }) => rule), ['private_key'])
+    const source = masks.map(({ srcSpan: { start, end } }) => ({ srcStart: start, srcEnd: end }))
+    const index = text.indexOf('hunter3')
+    assert.deepEqual(auditSpans(text, source), [
+      { kind: 'private_key', index: 0, end: pemHeader.length, covered: true },
+      { kind: 'password_prompt', index, end: index + 'hunter3'.length, covered: true },
+    ])
+    assert.deepEqual(auditUnmasked(text, source), [])
+    assert.deepEqual(auditInconsistent(text, source), [])
+  }],
+  ['a password prompt finding spans the entire value', () => {
+    const label = 'Password: '
+    const value = 'fixture with spaces'
+    assert.deepEqual(auditUnmasked(`${label}${value}\nnext`, []), [
+      { kind: 'password_prompt', index: label.length, end: label.length + value.length, covered: false },
+    ])
   }],
   ['finds a prefixed PEM header with no mask', () => {
     const text = `line-8 ${pemHeader}`

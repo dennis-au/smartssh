@@ -119,6 +119,12 @@ test('a leading invisible in a bearer value belongs to the mask', () => {
   assert.equal(result.masks[0].invisibleInside, 1)
 })
 
+test('empty credential values and bare prefixes never create masks', () => {
+  for (const text of ['token=', 'api_key= ', 'Password:', 'sk-']) {
+    assert.deepEqual(redact(text), { text, masks: [] })
+  }
+})
+
 test('empty assignments and plural suffixes stay unchanged, but short nonempty values mask', () => {
   for (const text of ['token=', 'token=""', 'sorted_keys=abc']) {
     assert.deepEqual(redact(text), { text, masks: [] })

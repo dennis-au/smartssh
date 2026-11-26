@@ -62,7 +62,7 @@ export function redact (text, opts = {}) {
   const spans = []
   const seenSpans = new Set()
   const addSpan = (rule, start, end, matchedToken) => {
-    if (start === end || matchedToken === MASK) return
+    if (!(end > start) || matchedToken === MASK) return
     const key = `${start}:${end}`
     // Exact duplicates are the same secret: keep the first rule, never union spans.
     if (seenSpans.has(key)) return
@@ -140,6 +140,7 @@ export function redact (text, opts = {}) {
     cursor = end
   }
   output += input.slice(cursor)
+  if (masks.some(m => !(m.srcSpan.end > m.srcSpan.start))) throw new Error('redact produced a zero-width mask')
   assertDisjointMasks(masks, output)
   return { text: output, masks }
 }

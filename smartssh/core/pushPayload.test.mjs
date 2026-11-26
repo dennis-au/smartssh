@@ -1,7 +1,9 @@
 // contract: v53
 import assert from 'node:assert/strict'
+import { auditUnmasked } from './audit.mjs'
 import { previewDisplay } from './preview.mjs'
 import { buildContextPush, maskBufferLine, MAX_LINES, TRIGGERS } from './pushPayload.mjs'
+import { redact } from './redact.mjs'
 
 const at = '2025-01-02T03:04:05.000Z'
 
@@ -98,6 +100,35 @@ const tests = [
     assert.equal(push.masks.length, 1)
     assert.equal(push.masks[0].rule, 'private_key')
     assert.equal(push.masks[0].srcLines, 5)
+  }],
+  ['auditUnmasked and payload acceptance agree on 12 inputs', () => {
+    const corpus = [
+      ['echo keep'],
+      ['token=fixture-token'],
+      ['MY_TOKEN=fixture-token'],
+      [[pem[0], 'Password: hunter3', pem.at(-1)].join('\n')],
+      ['Authorization: Bearer \u200Bfixture-bearer'],
+      ['ghp_\u200B01234567'],
+      ['to\u200Bken=fixture-token'],
+      ['akiafixture12345678'],
+      [pem[0]],
+      ['token=fixture-token', []],
+      ['Bearer \u200Bghp_01234567'],
+      ['token=\napi_key= \nPassword:\nsk-'],
+    ]
+    for (const [text, enabledRules] of corpus) {
+      const { masks } = redact(text, { enabled: enabledRules })
+      const source = masks.map(({ srcSpan: { start, end } }) => ({ srcStart: start, srcEnd: end }))
+      const uncovered = auditUnmasked(text, source)
+      let succeeds = true
+      try {
+        buildContextPush({ ...withLines(text.split('\n')), enabledRules })
+      } catch (error) {
+        if (!['AUDIT_UNCOVERED', 'AUDIT_INCONSISTENT'].includes(error.code)) throw error
+        succeeds = false
+      }
+      assert.equal(uncovered.length === 0, succeeds, JSON.stringify({ text, enabledRules }))
+    }
   }],
   ['PEM containing a password is one redacted segment', () => {
     const push = buildContextPush(withLines([`line-8 ${pem[0]}`, 'Password: hunter2', pem.at(-1)]))
