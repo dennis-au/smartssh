@@ -14,6 +14,11 @@ const PATTERNS = {
   password_prompt: /^[ \t]*((?:\[sudo\][ \t]*)?password[^:\n]*:[ \t]*)(\S.*)$/dgim,
 }
 
+export function maskSrcLines (input, mask) {
+  const { start, end } = mask.srcSpan
+  return input.slice(start, end).split('\n').length
+}
+
 export function redact (text, opts = {}) {
   const input = String(text ?? '')
   const enabled = new Set(opts.enabled ?? RULES)
@@ -52,7 +57,7 @@ export function redact (text, opts = {}) {
     output += input.slice(cursor, start)
     const offset = output.length
     output += MASK
-    masks.push({ rule, start: offset, end: output.length })
+    masks.push({ rule, start: offset, end: output.length, srcSpan: { start, end } })
     cursor = end
   }
   return { text: output + input.slice(cursor), masks }

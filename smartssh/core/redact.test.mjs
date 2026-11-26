@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
-import { MULTILINE_RULES, RULES, redact } from './redact.mjs'
+import { MULTILINE_RULES, RULES, maskSrcLines, redact } from './redact.mjs'
 
 const canaries = [
-  ['env_key', 'APP_TOKEN="secret-env"', 'APP_TOKEN="***"'],
-  ['bearer', 'Authorization: Bearer secret-header==', 'Authorization: Bearer ***'],
-  ['url_cred', 'https://alice:secret-url@example.com/path', 'https://***@example.com/path'],
-  ['cli_password', 'login --password=secret-cli --verbose', 'login --password=*** --verbose'],
-  ['known_prefix', 'token ghp_example suffix', 'token *** suffix'],
-  ['private_key', '-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-key\n-----END OPENSSH PRIVATE KEY-----', '***'],
-  ['password_prompt', 'Password: secret-input with spaces', 'Password: ***'],
+  ['env_key', 'APP_TOKEN="secret-env"', 'APP_TOKEN="***"', 'secret-env'],
+  ['bearer', 'Authorization: Bearer secret-header==', 'Authorization: Bearer ***', 'secret-header=='],
+  ['url_cred', 'https://alice:secret-url@example.com/path', 'https://***@example.com/path', 'alice:secret-url'],
+  ['cli_password', 'login --password=secret-cli --verbose', 'login --password=*** --verbose', 'secret-cli'],
+  ['known_prefix', 'token ghp_example suffix', 'token *** suffix', 'ghp_example'],
+  ['private_key', '-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-key\n-----END OPENSSH PRIVATE KEY-----', '***', 'secret-key'],
+  ['password_prompt', 'Password: secret-input with spaces', 'Password: ***', 'secret-input with spaces'],
 ]
 const allCanaries = canaries.map(([, input]) => input).join('\n')
 
@@ -63,6 +63,21 @@ test('mask offsets are into the returned text', () => {
   for (const { start, end } of result.masks) assert.equal(result.text.slice(start, end), '***')
 })
 
+test('canary masks have separate output and non-overlapping source coordinates', () => {
+  const input = `🔐 ${allCanaries}`
+  const { text, masks } = redact(input)
+  assert.deepEqual(masks.map(m => m.rule), RULES)
+  let previousEnd = 0
+  for (const [i, { rule, start, end, srcSpan }] of masks.entries()) {
+    assert.equal(text.slice(start, end), '***', rule)
+    const source = input.slice(srcSpan.start, srcSpan.end)
+    assert.ok(source.includes(canaries[i][3]), rule)
+    assert.ok(!source.includes('***'), rule)
+    assert.ok(previousEnd <= srcSpan.start, rule)
+    previousEnd = srcSpan.end
+  }
+})
+
 test('redacting masked output is a no-op', () => {
   const { text } = redact(allCanaries)
   assert.deepEqual(redact(text), { text, masks: [] })
@@ -87,9 +102,14 @@ test('environment suffixes and known prefixes are all recognized', () => {
 })
 
 test('quoted CLI values retain their quotes and overlapping rules mask once', () => {
-  const result = redact('Authorization: Bearer sk-fixture --password "two words" --verbose')
+  const input = 'Authorization: Bearer sk-fixture --password "two words" --verbose'
+  const result = redact(input)
   assert.equal(result.text, 'Authorization: Bearer *** --password "***" --verbose')
   assert.deepEqual(result.masks.map(m => m.rule), ['bearer', 'cli_password'])
+  // Identical source spans keep the first rule in pattern order: bearer before known_prefix.
+  const [{ srcSpan }] = result.masks
+  assert.equal(input.slice(srcSpan.start, srcSpan.end), 'sk-fixture')
+  assert.ok(srcSpan.end <= result.masks[1].srcSpan.start)
 })
 
 test('multiline rules preserve surrounding lines and PEM labels must match', () => {
@@ -104,7 +124,12 @@ test('multiline rules preserve surrounding lines and PEM labels must match', () 
 test('password prompts mask only the inline value', () => {
   for (const [label, value] of [['Password: ', 'hunter2'], ['[sudo] password for hermes: ', 'pw']]) {
     const result = redact(label + value)
-    assert.deepEqual(result.masks, [{ rule: 'password_prompt', start: label.length, end: label.length + 3 }])
+    assert.deepEqual(result.masks, [{
+      rule: 'password_prompt',
+      start: label.length,
+      end: label.length + 3,
+      srcSpan: { start: label.length, end: label.length + value.length },
+    }])
     const [{ start, end }] = result.masks
     assert.equal(result.text.slice(start, end), '***')
     assert.equal(result.text, `${label}***`)
@@ -124,15 +149,14 @@ test('config dump password masking preserves surrounding lines', () => {
   assert.deepEqual(result.masks.map(m => m.rule), ['password_prompt'])
 })
 
-// With one replacement, the length difference maps the output end back to the source end.
-function singleMaskSource (input, { text, masks }) {
+function singleMaskSource (input, { masks }) {
   assert.equal(masks.length, 1)
-  const [{ start, end }] = masks
-  return input.slice(start, end + input.length - text.length)
+  const [{ srcSpan: { start, end } }] = masks
+  return input.slice(start, end)
 }
 
 test('a whole PEM block is replaced by one multiline mask', () => {
-  const body = ['fixture-key-line-one', 'fixture-key-line-two']
+  const body = ['fixture-key-line-one', 'fixture-key-line-two', 'fixture-key-line-three']
   const pem = ['-----BEGIN OPENSSH PRIVATE KEY-----', ...body, '-----END OPENSSH PRIVATE KEY-----'].join('\n')
   const input = `before\n${pem}\nafter`
   const result = redact(input)
@@ -140,6 +164,7 @@ test('a whole PEM block is replaced by one multiline mask', () => {
   const source = singleMaskSource(input, result)
   assert.ok(source.includes('\n'))
   assert.equal(source, pem)
+  assert.equal(maskSrcLines(input, result.masks[0]), 5)
   assert.equal(result.text, 'before\n***\nafter')
   for (const line of body) assert.ok(!result.text.includes(line))
 })
@@ -153,6 +178,17 @@ test('only the private_key canary produces a multiline source span', () => {
     const input = `before\n${canary}\nafter`
     assert.equal(singleMaskSource(input, redact(input)).includes('\n'), rule === 'private_key', rule)
   }
+})
+
+test('single-line rules cover exactly one source line', () => {
+  const { masks } = redact(allCanaries)
+  for (const mask of masks) {
+    if (!MULTILINE_RULES.includes(mask.rule)) assert.equal(maskSrcLines(allCanaries, mask), 1, mask.rule)
+  }
+})
+
+test('maskSrcLines throws when the mask has no source span', () => {
+  assert.throws(() => maskSrcLines('secret', { rule: 'env_key', start: 0, end: 3 }), TypeError)
 })
 
 console.log(`${passes}/${passes + fails} passed`)
