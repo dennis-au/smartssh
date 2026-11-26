@@ -134,12 +134,47 @@ test('an invisible inside a prefix does not prevent matching', () => {
   assert.equal(singleMaskSource(input, redact(input)), 'g\u200Bhp_CANARY')
 })
 
-test('partial overlaps on normalized text are merged and keep the first rule', () => {
-  const input = 'Password APP_KEY=tag:sec\u200Dret trailing'
+// The contract changed in v52: extend over adjacent invisibles, never merge.
+test('two secrets separated by an invisible character stay two masks', () => {
+  const input = '--password=first!\u200Dghp_second'
   const result = redact(input)
-  assert.equal(result.text, 'Password APP_KEY=***')
-  assert.equal(singleMaskSource(input, result), 'tag:sec\u200Dret trailing')
-  assert.equal(result.masks[0].rule, 'env_key')
+  assert.equal(result.text, '--password=******')
+  assert.deepEqual(result.masks.map(m => m.rule), ['cli_password', 'known_prefix'])
+  assert.equal(result.masks[0].srcSpan.end, result.masks[1].srcSpan.start)
+  assert.deepEqual(result.masks.map(m => m.invisibleInside), [1, 0])
+  assertMaskTokens(input, result, ['first!', 'ghp_second'])
+})
+
+test('an invisible separator cannot mask any part of the next assignment', () => {
+  for (const command of ['', 'export ']) {
+    const first = 'export A_KEY=fixture-a'
+    const next = `${command}B_KEY=fixture-b`
+    const input = `${first}\u200B${next}`
+    const result = redact(input)
+    assert.equal(result.text, `export A_KEY=***${command}B_KEY=***`)
+    assert.equal(result.masks.length, 2)
+    const { start, end } = result.masks[0].srcSpan
+    assert.equal(end, first.length + 1)
+    assert.equal(input.slice(start, end), 'fixture-a\u200B')
+    assertMaskTokens(input, result, ['fixture-a', 'fixture-b'])
+  }
+})
+
+test('a known prefix with an invisible inside includes it in the mask', () => {
+  const token = 'ghp_\u200Bfixture'
+  const input = `token ${token} suffix`
+  const result = redact(input)
+  assert.equal(singleMaskSource(input, result), token)
+  assert.equal(result.masks[0].invisibleInside, 1)
+  assert.equal(result.masks.length, redact(stripInvisible(input).stripped).masks.length)
+})
+
+test('three secrets separated by two invisibles stay disjoint', () => {
+  const input = 'A_KEY=first\u200BB_KEY=second\u202EC_KEY=third'
+  const result = redact(input)
+  assert.equal(result.text, 'A_KEY=***B_KEY=***C_KEY=***')
+  assert.deepEqual(result.masks.map(m => m.invisibleInside), [1, 1, 0])
+  assertMaskTokens(input, result, ['first', 'second', 'third'])
 })
 
 test('clean emoji ZWJ sequences are preserved without masks', () => {
@@ -147,15 +182,39 @@ test('clean emoji ZWJ sequences are preserved without masks', () => {
   assert.deepEqual(redact(text), { text, masks: [] })
 })
 
-test('quoted CLI values retain their quotes and overlapping rules mask once', () => {
-  const input = 'Authorization: Bearer sk-fixture --password "two words" --verbose'
+// The contract changed in v52: extend over adjacent invisibles, never merge.
+test('quoted CLI values retain their quotes and duplicate matches count once', () => {
+  const input = 'Authorization: Bearer sk-fixture\u200B --password "two words" --verbose'
   const result = redact(input)
   assert.equal(result.text, 'Authorization: Bearer *** --password "***" --verbose')
+  // Identical spans match bearer and known_prefix; bearer is first in pattern order.
   assert.deepEqual(result.masks.map(m => m.rule), ['bearer', 'cli_password'])
-  // Identical source spans keep the first rule in pattern order: bearer before known_prefix.
-  const [{ srcSpan }] = result.masks
-  assert.equal(input.slice(srcSpan.start, srcSpan.end), 'sk-fixture')
-  assert.ok(srcSpan.end <= result.masks[1].srcSpan.start)
+  assertMaskTokens(input, result, ['sk-fixture', 'two words'])
+})
+
+test('all eight high-risk combinations preserve the matched token in each source span', () => {
+  const pem = '-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----'
+  const cases = [
+    ['env_key', '😀 A_KEY=secret\u200Bexport', 'secret'],
+    ['bearer', 'Authorization: Bearer fix\u200Dture==\u200F next', 'fixture=='],
+    ['url_cred', 'https://alice:sec\u202Eret@example.com/path', 'alice:secret'],
+    ['cli_password', 'login --password=fixture\u200B--verbose', 'fixture'],
+    ['cli_password', 'login --password "two words"\u200B--verbose', 'two words'],
+    ['known_prefix', 'token ghp_\u200Bfixture\u2069 suffix', 'ghp_fixture'],
+    ['private_key', pem.replace('fixture', 'fix\u200Bture') + '\u200B\nafter', pem],
+    ['password_prompt', 'Password:\u200Btwo words\nnext', 'two words'],
+  ]
+  for (const [rule, input, token] of cases) {
+    const result = redact(input)
+    assert.deepEqual(result.masks.map(m => m.rule), [rule], rule)
+    assertMaskTokens(input, result, [token])
+  }
+})
+
+test('a boundary match that consumes a synthetic space fails the token equality check', () => {
+  assert.throws(() => redact('login --password "two\u200Bwords"'), {
+    message: 'mask span does not match the matched token',
+  })
 })
 
 test('multiline rules preserve surrounding lines and PEM labels must match', () => {
@@ -175,6 +234,7 @@ test('password prompts mask only the inline value', () => {
       start: label.length,
       end: label.length + 3,
       srcSpan: { start: label.length, end: label.length + value.length },
+      invisibleInside: 0,
     }])
     const [{ start, end }] = result.masks
     assert.equal(result.text.slice(start, end), '***')
@@ -194,6 +254,21 @@ test('config dump password masking preserves surrounding lines', () => {
   assert.equal(result.text, 'cat config.ini\n[db]\nPassword: ***\nhost=db1')
   assert.deepEqual(result.masks.map(m => m.rule), ['password_prompt'])
 })
+
+function assertMaskTokens (input, { text, masks }, matchedTokens) {
+  assert.equal(masks.length, matchedTokens.length)
+  let previousSrcEnd = 0
+  let previousEnd = 0
+  for (const [i, { start, end, srcSpan }] of masks.entries()) {
+    assert.ok(previousSrcEnd <= srcSpan.start)
+    assert.ok(previousEnd <= start)
+    assert.equal(text.slice(start, end), '***')
+    assert.equal(stripInvisible(input.slice(srcSpan.start, srcSpan.end)).stripped,
+      stripInvisible(matchedTokens[i]).stripped)
+    previousSrcEnd = srcSpan.end
+    previousEnd = end
+  }
+}
 
 function singleMaskSource (input, { masks }) {
   assert.equal(masks.length, 1)

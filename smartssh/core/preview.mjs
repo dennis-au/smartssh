@@ -1,4 +1,4 @@
-// contract: v50
+// contract: v52
 const INVISIBLES = /[\u00AD\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/gu
 const BIDI = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/u
 

@@ -1,4 +1,4 @@
-// contract: v50
+// contract: v52
 // barModel.mjs — the bar's data-* attributes, which controls exist, and the only legal transitions.
 // Nothing here renders: it is the contract the DOM must express (v19 DOM, v26 states, v29 counting
 // rules, v30 offline causes). A pure model makes "this state has no approve control" a unit test

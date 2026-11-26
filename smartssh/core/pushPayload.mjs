@@ -1,5 +1,5 @@
-// contract: v50
-import { redact } from './redact.mjs'
+// contract: v52
+import { maskSrcLines, redact } from './redact.mjs'
 
 export const TRIGGERS = Object.freeze(['manual', 'l', 'ask', 'hermes_request'])
 export const MAX_LINES = 200
@@ -36,14 +36,10 @@ export function buildContextPush (input) {
   const windowText = lines.join('\n')
   const { text, masks: redactions } = redact(windowText, { enabled: input.enabledRules })
   const sourceWindow = { windowText, lines, range }
-  const masks = redactions.map(({ rule, start, end, srcSpan }) => {
+  const masks = redactions.map(mask => {
+    const { start, end } = mask
     if (text.slice(start, end) !== '***') throw new Error('context.push mask does not point at ***')
-    const bufferLine = maskBufferLine(sourceWindow, { srcSpan })
-    // “Do not store derived numbers” applies only to values derivable from what
-    // is already returned. Compute values that need the raw source at build
-    // time: dropping the raw text wins over purity.
-    const srcLines = windowText.slice(srcSpan.start, srcSpan.end).split('\n').length
-    return { rule, start, end, srcSpan, bufferLine, srcLines }
+    return { ...mask, bufferLine: maskBufferLine(sourceWindow, mask), srcLines: maskSrcLines(windowText, mask) }
   })
   masks.sort((a, b) => a.start - b.start)
 

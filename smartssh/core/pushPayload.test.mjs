@@ -113,7 +113,8 @@ const tests = [
     assert.deepEqual(push, JSON.parse(JSON.stringify(push)))
     assert.equal(push.masks.length, 2)
     for (const mask of push.masks) {
-      assert.deepEqual(Object.keys(mask).sort(), ['bufferLine', 'end', 'rule', 'srcLines', 'srcSpan', 'start'])
+      assert.deepEqual(Object.keys(mask).sort(), ['bufferLine', 'end', 'invisibleInside', 'rule', 'srcLines', 'srcSpan', 'start'])
+      assert.equal(mask.invisibleInside, 0)
     }
   }],
   ['range off by one throws', () => {
@@ -189,6 +190,15 @@ const tests = [
     assert.equal(payload.text, input.lines.join('\n').replace('example-bearer', '***').replace('example-token', '***'))
     assert.equal(payload.redacted_segments, 2)
     assert.equal(payload.masks.length, 2)
+    assertMaskSlices(payload)
+  }],
+  ['an invisible separator does not hide the next export in the payload', () => {
+    const line = 'export A_KEY=fixture-a\u200Bexport B_KEY=fixture-b'
+    const payload = buildContextPush(withLines([line, 'echo keep']))
+    assert.equal(payload.text, 'export A_KEY=***export B_KEY=***\necho keep')
+    assert.equal(payload.redacted_segments, 2)
+    assert.deepEqual(payload.masks.map(({ invisibleInside }) => invisibleInside), [1, 0])
+    assert.deepEqual(payload.masks.map(({ srcSpan }) => line.slice(srcSpan.start, srcSpan.end)), ['fixture-a\u200B', 'fixture-b'])
     assertMaskSlices(payload)
   }],
   ['both counters are present even when zero', () => {
