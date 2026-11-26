@@ -1,11 +1,11 @@
 import assert from 'node:assert'
-import { buildDiagnostics, DIAG_KEYS, TRUST, GATE, ERROR_CODES, toErrorCode } from './diagnostics.mjs'
+import { buildDiagnostics, DIAG_KEYS, TRUST, GATE, ERROR_CODES, TRANSPORT_TIMEOUT_EVENT, toErrorCode } from './diagnostics.mjs'
 const r = []; const t = (n, f) => { try { f(); r.push(['PASS', n]) } catch (e) { r.push(['FAIL', n + ' :: ' + e.message]) } }
 const H = 'a'.repeat(64); const V = '1.0.238 · sms.42 · 54869e1'
 const o = (x) => JSON.parse(buildDiagnostics(x))
 
 // ---- SPEC OF RECORD: producer -> code, every row ----
-t('SPEC: all 13 producer rows map exactly', () => {
+t('SPEC: all 14 producer rows map exactly', () => {
   const rows = [
     [{ status: 401 }, 'token_invalid'],
     [{ status: 409 }, 'stale_approval'],
@@ -17,7 +17,7 @@ t('SPEC: all 13 producer rows map exactly', () => {
     [{ type: 'dispatch_failed' }, 'dispatch_failed'],
     [{ type: 'aborted', reason: 'dispatch_timeout' }, 'dispatch_timeout'],
     [{ type: 'aborted', reason: 'session_replaced' }, 'session_replaced'],
-    [{ type: 'timeout' }, 'transport_unknown'],
+    [{ type: TRANSPORT_TIMEOUT_EVENT }, 'transport_unknown'],
     [{ status: 200, replay: true }, null],
     [{ type: 'command.exit', exit_code: null }, null],
     [{ type: 'command.exit', exit_code: 1 }, null],
@@ -36,6 +36,12 @@ t('SPEC: 5xx and 429 are different codes (wait vs look at relay)', () => {
 })
 t('SPEC: 4xx not in the table is not an error code', () => {
   for (const s of [400, 404, 405, 422]) assert.strictEqual(toErrorCode({ status: s }), null, String(s))
+})
+
+t('SPEC: both legacy transport timeout shapes are rejected', () => {
+  assert.strictEqual(TRANSPORT_TIMEOUT_EVENT, 'transport_timeout')
+  assert.strictEqual(toErrorCode({ type: 'timeout' }), null)
+  assert.strictEqual(toErrorCode({ status: 'unknown' }), null)
 })
 
 // ---- payload shape ----
@@ -68,6 +74,11 @@ t('v16 ring buffer: a repeat moves the code to the end (last element = newest)',
 t('v16 ring buffer: caps at 3', () => {
   const got = o({ errors: [{ status: 401 }, { status: 409 }, { status: 410 }, { status: 429 }] }).errors
   assert.deepStrictEqual(got, ['stale_approval', 'proposal_dead', 'rate_limited'])
+})
+t('v16 ring buffer: a repeat refreshes recency before eviction; unmapped events are ignored', () => {
+  const [A, B, C, D] = ERROR_CODES
+  const errors = [A, B, C, { type: 'timeout' }, { status: 403 }, D, { status: 200 }]
+  assert.deepStrictEqual(o({ errors }).errors, [C, A, D])
 })
 t('v16: 403 collapses into token_invalid (same remedy as 401)', () => {
   assert.strictEqual(toErrorCode({ status: 403 }), 'token_invalid')

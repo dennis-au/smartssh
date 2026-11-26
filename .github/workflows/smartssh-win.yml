@@ -2,7 +2,11 @@ name: smartssh-win
 on:
   push:
     branches: [smartssh]
+    paths-ignore:
+      - 'ci-status/**'
   workflow_dispatch:
+permissions:
+  contents: write
 env:
   SMARTSSH_VERSION: "1.0.238"
 jobs:
@@ -53,7 +57,47 @@ jobs:
             Write-Host $_.Name $h
           }
           Get-Content artifact-sha256.txt
+      - name: Publish status (credential-free read channel for the build agent)
+        if: always()
+        shell: powershell
+        env:
+          JOB_STATUS: ${{ job.status }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          $hash = ''
+          if (Test-Path artifact-sha256.txt) {
+            $hash = (Get-Content artifact-sha256.txt -Raw).Trim() -replace "`r|`n", ' | '
+          }
+          $exe = ''
+          Get-ChildItem dist -Filter *portable*.exe -ErrorAction SilentlyContinue | ForEach-Object {
+            $exe = "$($_.Name) $([math]::Round($_.Length/1MB,1))MB"
+          }
+          $out = [ordered]@{
+            run      = [int]$env:RUN_NUMBER
+            run_id   = $env:RUN_ID
+            status   = $env:JOB_STATUS
+            commit   = $env:SHA
+            version  = $env:SMARTSSH_VERSION
+            sha256   = $hash
+            exe      = $exe
+            at       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          }
+          New-Item -ItemType Directory -Force -Path ci-status | Out-Null
+          $out | ConvertTo-Json | Out-File -Encoding utf8 "ci-status/$($env:RUN_NUMBER).json"
+          Get-Content "ci-status/$($env:RUN_NUMBER).json"
+      - name: Commit status
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add ci-status
+          git diff --cached --quiet || git commit -m "ci: run ${{ github.run_number }} [skip ci]"
+          git push
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: smartssh-portable
           path: |

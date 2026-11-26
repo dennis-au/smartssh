@@ -1,12 +1,13 @@
-// "Copy diagnostics" — designer v15 SPEC OF RECORD. Ten codes, or null. No third state.
-export const TRUST = ['off', 'watch', 'propose', 'readonly_auto']
-export const GATE = ['clean', 'prompt_dirty', 'settling', 'alt_screen', 'continuation']
-export const ERROR_CODES = [
+// "Copy diagnostics" — designer v16 SPEC OF RECORD. Ten codes, or null. No third state.
+export const TRUST = Object.freeze(['off', 'watch', 'propose', 'readonly_auto'])
+export const GATE = Object.freeze(['clean', 'prompt_dirty', 'settling', 'alt_screen', 'continuation'])
+export const ERROR_CODES = Object.freeze([
   'token_invalid', 'stale_approval', 'proposal_dead', 'truncation_refused', 'rate_limited',
   'server_error', 'dispatch_failed', 'dispatch_timeout', 'session_replaced', 'transport_unknown',
-]
+])
 export const DIAG_KEYS = ['version', 'sha256', 'trust', 'gate', 'errors']
 export const MAX_BYTES = 2048
+export const TRANSPORT_TIMEOUT_EVENT = 'transport_timeout'
 const VERSION_RE = /^\d+\.\d+\.\d+ · sms\.\d+ · [0-9a-f]{7,40}$/
 const STATUS_MAP = {
   401: 'token_invalid', 403: 'token_invalid', 409: 'stale_approval', 410: 'proposal_dead',
@@ -27,7 +28,7 @@ export function toErrorCode (event) {
   }
   if (type === 'aborted') return (reason === 'dispatch_timeout' || reason === 'session_replaced') ? reason : null
   if (type === 'dispatch_failed') return 'dispatch_failed'
-  if (type === 'timeout' || type === 'transport_timeout' || status === 'unknown') return 'transport_unknown'
+  if (type === TRANSPORT_TIMEOUT_EVENT) return 'transport_unknown'
   if (type === 'exit' || type === 'command.exit') return null   // exit_code null or non-zero: not an app error
   return null
 }
@@ -40,14 +41,14 @@ export function buildDiagnostics (input = {}) {
   const gate = GATE.includes(src.gate) ? src.gate : 'prompt_dirty'
   // v16: ring buffer of the last 3 DISTINCT codes — dedupe keeps the LAST position,
   // output oldest -> newest, so the final element is always the most recent one.
-  const seen = []
+  const errors = []
   for (const raw of Array.isArray(src.errors) ? src.errors : []) {
     const code = toErrorCode(raw)
     if (!code) continue
-    const at = seen.indexOf(code)
-    if (at !== -1) seen.splice(at, 1)
-    seen.push(code)
+    const at = errors.indexOf(code)
+    if (at !== -1) errors.splice(at, 1)
+    errors.push(code)
+    if (errors.length > 3) errors.shift()
   }
-  const errors = seen.slice(-3)
   return JSON.stringify({ version, sha256, trust, gate, errors })
 }
