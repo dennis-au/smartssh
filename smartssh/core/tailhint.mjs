@@ -1,4 +1,4 @@
-// contract: v47
+// contract: v50
 // tailhint.mjs — decide whether the cells AFTER the cursor are shell-drawn hints.
 // Contract (designer v18/v19 §tailIsHint):
 //   1. only an adapter may produce `true` (all cells styled dim/italic/suggestion colour)

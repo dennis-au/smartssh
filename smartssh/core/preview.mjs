@@ -1,5 +1,6 @@
-// contract: v47
+// contract: v50
 const INVISIBLES = /[\u00AD\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/gu
+const BIDI = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/u
 
 function codePointLabel (character) {
   return 'U+' + character.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')
@@ -12,15 +13,39 @@ export function previewText (payload) {
 }
 
 export function scanInvisibles (text) {
+  // Raw, context-free code-point counts for diagnostics only, not warnings.
   let zeroWidth = 0
   let bidi = 0
+  let deception = 0
+  let suspicious = 0
+  let legitimate = 0
   const codePoints = new Set()
-  for (const [character] of text.matchAll(INVISIBLES)) {
-    if (character >= '\u202A' && character <= '\u2069') bidi++
+  for (const { 0: character, index } of text.matchAll(INVISIBLES)) {
+    const isBidi = BIDI.test(character)
+    if (isBidi) bidi++
     else zeroWidth++
+
+    const isJoiner = character === '\u200C' || character === '\u200D'
+    const asciiFlanked = isJoiner && text.charCodeAt(index - 1) <= 0x7F && text.charCodeAt(index + 1) <= 0x7F
+    if (isBidi || asciiFlanked) {
+      deception++
+    } else if (isJoiner || (character === '\uFEFF' && index === 0)) {
+      legitimate++
+      continue
+    } else {
+      suspicious++
+    }
     codePoints.add(codePointLabel(character))
   }
-  return { zeroWidth, bidi, total: zeroWidth + bidi, codePoints: [...codePoints].sort() }
+  return {
+    deception,
+    suspicious,
+    legitimate,
+    total: deception + suspicious,
+    zeroWidth,
+    bidi,
+    codePoints: [...codePoints].sort(),
+  }
 }
 
 // display is for rendering only. The clipboard source is always previewText(payload),
@@ -28,11 +53,17 @@ export function scanInvisibles (text) {
 // nodes, so selection does not copy them. Apply mask offsets to the raw text.
 export function previewDisplay (payload, { showInvisibles = false } = {}) {
   const text = previewText(payload)
-  const { zeroWidth, bidi, total } = scanInvisibles(text)
+  const { deception, suspicious, codePoints } = scanInvisibles(text)
   const warnings = []
-  if (zeroWidth) warnings.push(`含有 ${zeroWidth} 個零寬字元`)
-  if (bidi) warnings.push(`含有 ${bidi} 個可能影響顯示次序的雙向控制字元`)
-  const display = showInvisibles && total
+  if (deception) {
+    const hasDeceptiveJoiner = codePoints.includes('U+200C') || codePoints.includes('U+200D')
+    const message = hasDeceptiveJoiner
+      ? `含有 ${deception} 個可能隱藏內容或影響顯示次序的字元`
+      : `含有 ${deception} 個可能影響顯示次序的雙向控制字元`
+    warnings.push({ kind: 'banner', text: message })
+  }
+  if (suspicious) warnings.push({ kind: 'detail', text: `含有 ${suspicious} 個可疑的零寬字元` })
+  const display = showInvisibles
     ? text.replace(INVISIBLES, character => `⟦${codePointLabel(character)}⟧`)
     : text
   return { display, warnings }

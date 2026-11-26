@@ -9,7 +9,7 @@ const build = (...lines) => buildContextPush({
   range: { fromLine: 1, toLine: lines.length, at: 0 },
   lines,
 })
-const cleanScan = { zeroWidth: 0, bidi: 0, total: 0, codePoints: [] }
+const cleanScan = { zeroWidth: 0, bidi: 0, deception: 0, suspicious: 0, legitimate: 0, total: 0, codePoints: [] }
 const tests = [
   ['preview text equals the built payload text without normalization', () => {
     const payload = build('  cafe\u0301\r', 'emoji 😀  ')
@@ -31,15 +31,49 @@ const tests = [
       display: 'clean 😀 text', warnings: [],
     })
   }],
-  ['U+200B counts as one zero-width character', () => {
-    assert.deepEqual(scanInvisibles('a\u200Bb'), {
-      zeroWidth: 1, bidi: 0, total: 1, codePoints: ['U+200B'],
-    })
+  ['legitimate joiners do not contribute to any warning tier', () => {
+    for (const [text, legitimate] of [['👨‍👩‍👧', 2], ['ع\u200Cب', 1], ['क\u200Dष', 1], ['a\u200Dé', 1], ['\u200Da', 1], ['a\u200C', 1]]) {
+      assert.deepEqual(scanInvisibles(text), { ...cleanScan, zeroWidth: legitimate, legitimate })
+      assert.deepEqual(previewDisplay({ text }).warnings, [])
+    }
   }],
-  ['bidi warning includes 顯示次序 and the count', () => {
+  ['ASCII-flanked joiners count as deception and trigger a banner', () => {
+    for (const [text, label] of [['a\u200Db', 'U+200D'], ['a\u200Cb', 'U+200C']]) {
+      assert.deepEqual(scanInvisibles(text), {
+        ...cleanScan, zeroWidth: 1, deception: 1, total: 1, codePoints: [label],
+      })
+      assert.deepEqual(previewDisplay({ text }).warnings.map(warning => warning.kind), ['banner'])
+    }
+  }],
+  ['U+200B triggers a detail warning even when placeholders are hidden', () => {
+    const text = 'a\u200Bb'
+    assert.deepEqual(scanInvisibles(text), {
+      ...cleanScan, zeroWidth: 1, suspicious: 1, total: 1, codePoints: ['U+200B'],
+    })
+    const hidden = previewDisplay({ text }, { showInvisibles: false })
+    const shown = previewDisplay({ text }, { showInvisibles: true })
+    assert.deepEqual(hidden.warnings.map(warning => warning.kind), ['detail'])
+    assert.deepEqual(shown.warnings, hidden.warnings)
+    assert.equal(hidden.display, text)
+    assert.equal(shown.display, 'a⟦U+200B⟧b')
+  }],
+  ['a BOM is suspicious only away from the start', () => {
+    assert.deepEqual(scanInvisibles('\uFEFFabc'), { ...cleanScan, zeroWidth: 1, legitimate: 1 })
+    assert.deepEqual(scanInvisibles('a\uFEFFb'), {
+      ...cleanScan, zeroWidth: 1, suspicious: 1, total: 1, codePoints: ['U+FEFF'],
+    })
+    assert.deepEqual(scanInvisibles('\uFEFFa\uFEFFb'), {
+      ...cleanScan, zeroWidth: 2, suspicious: 1, legitimate: 1, total: 1, codePoints: ['U+FEFF'],
+    })
+    assert.deepEqual(previewDisplay({ text: '\uFEFFa' }).warnings, [])
+  }],
+  ['bidi produces one banner with 顯示次序 and the count', () => {
     const text = 'a\u202Eb'
     assert.equal(scanInvisibles(text).bidi, 1)
-    assert.ok(previewDisplay({ text }).warnings.some(warning => /1.*顯示次序|顯示次序.*1/u.test(warning)))
+    assert.equal(scanInvisibles(text).deception, 1)
+    const { warnings } = previewDisplay({ text })
+    assert.deepEqual(warnings.map(warning => warning.kind), ['banner'])
+    assert.match(warnings[0].text, /1.*顯示次序/u)
   }],
   ['visible placeholders do not change the raw clipboard source', () => {
     const payload = { text: 'a\u202Eb' }
@@ -48,8 +82,21 @@ const tests = [
   }],
   ['mixed counts include repeats but labels are unique and sorted', () => {
     assert.deepEqual(scanInvisibles('\u202E\u200B\u200B'), {
-      zeroWidth: 2, bidi: 1, total: 3, codePoints: ['U+200B', 'U+202E'],
+      ...cleanScan, zeroWidth: 2, bidi: 1, deception: 1, suspicious: 2, total: 3, codePoints: ['U+200B', 'U+202E'],
     })
+  }],
+  ['mixed warnings and labels count only deception and suspicious occurrences', () => {
+    const text = '\uFEFF👨‍👩‍👧 a\u200Cb\u202E\u200B\u200B\u00AD'
+    const scan = scanInvisibles(text)
+    assert.deepEqual(scan, {
+      deception: 2, suspicious: 3, legitimate: 3, total: 5, zeroWidth: 7, bidi: 1,
+      codePoints: ['U+00AD', 'U+200B', 'U+200C', 'U+202E'],
+    })
+    assert.equal(scan.total, scan.deception + scan.suspicious)
+    assert.deepEqual(previewDisplay({ text }).warnings, [
+      { kind: 'banner', text: '含有 2 個可能隱藏內容或影響顯示次序的字元' },
+      { kind: 'detail', text: '含有 3 個可疑的零寬字元' },
+    ])
   }],
   ['empty text produces a zero-count result', () => {
     assert.deepEqual(scanInvisibles(''), cleanScan)
@@ -69,9 +116,9 @@ const tests = [
     const bidi = '\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069'
     const text = clean + zeroWidth + bidi
     assert.deepEqual(scanInvisibles(text), {
-      zeroWidth: 7, bidi: 9, total: 16,
+      zeroWidth: 5, bidi: 11, deception: 11, suspicious: 3, legitimate: 2, total: 14,
       codePoints: [
-        'U+00AD', 'U+200B', 'U+200C', 'U+200D', 'U+200E', 'U+200F',
+        'U+00AD', 'U+200B', 'U+200E', 'U+200F',
         'U+202A', 'U+202B', 'U+202C', 'U+202D', 'U+202E', 'U+2066', 'U+2067', 'U+2068', 'U+2069', 'U+FEFF',
       ],
     })

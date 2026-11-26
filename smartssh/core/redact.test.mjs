@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { MULTILINE_RULES, RULES, maskSrcLines, redact } from './redact.mjs'
+import { MULTILINE_RULES, RULES, maskSrcLines, redact, stripInvisible } from './redact.mjs'
 
 const canaries = [
   ['env_key', 'APP_TOKEN="secret-env"', 'APP_TOKEN="***"', 'secret-env'],
@@ -99,6 +99,52 @@ test('environment suffixes and known prefixes are all recognized', () => {
   const prefixes = redact('sk-fixture ghp_fixture AKIAFIXTURE xoxb-fixture ssh-rsa AAAAFIXTURE== comment')
   assert.equal(prefixes.text, '*** *** *** *** *** comment')
   assert.deepEqual(prefixes.masks.map(m => m.rule), Array(5).fill('known_prefix'))
+})
+
+test('stripInvisible removes exactly the listed code points and maps UTF-16 offsets', () => {
+  const removed = '\u200B\u200C\u200D\u200E\u200F\u00AD\uFEFF\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069'
+  const retained = '\u200A\u2010\u2029\u202F\u2065\u206A\uFEFE'
+  assert.deepEqual(stripInvisible(`😀${removed}${retained}`), {
+    stripped: `😀${retained}`,
+    map: [0, 1, ...Array.from(retained, (_, i) => 2 + removed.length + i)],
+  })
+})
+
+for (const invisible of ['\u200B', '\u200D', '\u202E']) {
+  const label = `U+${invisible.charCodeAt(0).toString(16).toUpperCase()}`
+  test(`all five token prefixes mask through ${label}`, () => {
+    for (const [context, prefix] of [
+      ['token ', 'ghp_'], ['key ', 'sk-'], ['aws ', 'AKIA'],
+      ['slack ', 'xoxb-'], ['Authorization: Bearer ', ''],
+    ]) {
+      const token = `${prefix}CAN${invisible}ARY`
+      const input = `🔐 ${context}${token} suffix`
+      const result = redact(input)
+      assert.equal(result.masks.length, 1, context)
+      assert.equal(result.masks.length, redact(stripInvisible(input).stripped).masks.length, context)
+      assert.equal(singleMaskSource(input, result), token, context)
+      assert.equal(result.text, `🔐 ${context}*** suffix`, context)
+      assert.deepEqual(redact(result.text), { text: result.text, masks: [] }, context)
+    }
+  })
+}
+
+test('an invisible inside a prefix does not prevent matching', () => {
+  const input = 'token g\u200Bhp_CANARY'
+  assert.equal(singleMaskSource(input, redact(input)), 'g\u200Bhp_CANARY')
+})
+
+test('partial overlaps on normalized text are merged and keep the first rule', () => {
+  const input = 'Password APP_KEY=tag:sec\u200Dret trailing'
+  const result = redact(input)
+  assert.equal(result.text, 'Password APP_KEY=***')
+  assert.equal(singleMaskSource(input, result), 'tag:sec\u200Dret trailing')
+  assert.equal(result.masks[0].rule, 'env_key')
+})
+
+test('clean emoji ZWJ sequences are preserved without masks', () => {
+  const text = 'Family: 👨‍👩‍👧'
+  assert.deepEqual(redact(text), { text, masks: [] })
 })
 
 test('quoted CLI values retain their quotes and overlapping rules mask once', () => {

@@ -1,4 +1,4 @@
-// contract: v47
+// contract: v50
 // "Copy diagnostics" — designer v16, extended in v39. Eleven codes, or null.
 export const TRUST = Object.freeze(['off', 'watch', 'propose', 'readonly_auto'])
 export const GATE = Object.freeze(['clean', 'prompt_dirty', 'settling', 'alt_screen', 'continuation'])

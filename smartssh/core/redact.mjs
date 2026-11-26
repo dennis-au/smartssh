@@ -1,9 +1,22 @@
-// contract: v47
+// contract: v50
 // redact.mjs — find secret spans in terminal text without changing their surrounding syntax.
 export const RULES = ['env_key', 'bearer', 'url_cred', 'cli_password', 'known_prefix', 'private_key', 'password_prompt']
 export const MULTILINE_RULES = ['private_key']
 
 const MASK = '***'
+const INVISIBLE = /[\u200B\u200C\u200D\u200E\u200F\u00AD\uFEFF\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069]/u
+
+export function stripInvisible (text) {
+  let stripped = ''
+  const map = []
+  // RegExp match indices are UTF-16 offsets, including both units of a surrogate pair.
+  for (let i = 0; i < text.length; i++) {
+    if (INVISIBLE.test(text[i])) continue
+    stripped += text[i]
+    map.push(i)
+  }
+  return { stripped, map }
+}
 // Capture the replacement span separately from context. CLI quoting uses alternate captures.
 const PATTERNS = {
   env_key: /\b[A-Za-z_]\w*_(?:KEY|TOKEN|SECRET|PASSWORD)=["']?([^\s"']+)/dg,
@@ -34,14 +47,16 @@ export function assertDisjointMasks (masks, text) {
 export function redact (text, opts = {}) {
   const input = String(text ?? '')
   const enabled = new Set(opts.enabled ?? RULES)
+  const { stripped, map } = stripInvisible(input)
   const spans = []
   for (const [rule, pattern] of Object.entries(PATTERNS)) {
     if (!enabled.has(rule)) continue
-    for (const match of input.matchAll(pattern)) {
-      const [start, end] = rule === 'password_prompt'
+    for (const match of stripped.matchAll(pattern)) {
+      const [i, j] = rule === 'password_prompt'
         ? match.indices[2]
         : (match.indices[1] ?? match.indices[2] ?? match.indices[3])
-      if (input.slice(start, end) !== MASK) spans.push({ rule, start, end })
+      if (j === 0 || stripped.slice(i, j) === MASK) continue
+      spans.push({ rule, start: map[i], end: j > map.length ? input.length : map[j - 1] + 1 })
     }
   }
 
