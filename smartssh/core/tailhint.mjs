@@ -52,7 +52,7 @@ export function tailIsHintFromCells (cells) {
 /**
  * Same-render snapshot: reads cursorX, endCol and the tail cells in ONE pass, so a cursor
  * move between frames cannot pair a new cursor with stale cell styles (designer v19).
- * Production supplies `endCol` (e.g. `line.getTrimmedLength()`); without it we fall back to
+ * Production supplies `endCol` (e.g. `line.translateToString(false).replace(/\s+$/,'').length`); without it we fall back to
  * trimming trailing padding by cell content, which is correct but costlier.
  * @param {object} snap
  * @param {number} snap.cursorX

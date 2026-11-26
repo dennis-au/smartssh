@@ -34,6 +34,8 @@ jobs:
           node smartssh/core/selftest.mjs
           node smartssh/core/diag.test.mjs
           node smartssh/core/hint.test.mjs
+          node smartssh/core/tailhint.test.mjs
+          node smartssh/core/xterm.integration.test.mjs
       - name: Webpack build
         id: webpack
         run: yarn run build

@@ -27,6 +27,7 @@
     "@types/node": "^20",
     "@typescript-eslint/eslint-plugin": "^6",
     "@typescript-eslint/parser": "^6",
+    "@xterm/headless": "^6.0.0",
     "apply-loader": "2.0.0",
     "babel-loader": "^9",
     "clone-deep": "^4",
