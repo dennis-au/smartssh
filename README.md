@@ -1,3 +1,22 @@
+# SmartSSH — a Tabby fork
+
+**This repository is a fork of [Tabby](https://github.com/Eugeny/tabby) by Eugene Pankov, used under
+the MIT licence.** The upstream copyright notices and `LICENSE` are kept unchanged. Upstream base:
+`v1.0.238` (`54869e108aaa336fdd01bc4de5b160fd8feccf7b`).
+
+Changes made by this fork are limited to:
+
+- `smartssh/` — pure ESM core (prompt gate, settler, diagnostics payload, tail-hint adapter) + tests,
+  and the Windows acceptance script in `smartssh/verify/`.
+- `.github/workflows/smartssh-win.yml` and `scripts/build-smartssh.mjs` — the portable Windows build.
+- `scripts/vars.mjs` — version now comes from `SMARTSSH_VERSION` when the checkout has no tags.
+- `README.md` — this section. Upstream workflow files and Dependabot config were removed.
+
+Everything else is upstream Tabby. Nothing here is an official Tabby release; do not report fork bugs
+to the Tabby project.
+
+---
+
 [![](docs/readme.png)](https://tabby.sh)
 
 

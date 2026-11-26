@@ -2,7 +2,7 @@ import assert from 'node:assert'
 import { isAtPrompt } from './gate.mjs'
 const pad = s => s + ' '.repeat(Math.max(0, 90 - s.length))
 const base = { token: '$ ', tokenTrusted: true, altScreen: false, selection: false, viewportY: 0, baseY: 0 }
-const P = 'hermes@srv2081285:~$ '
+const P = 'hermes@srv:~$ '
 const r = []; const t = (n, f) => { try { f(); r.push(['PASS', n]) } catch (e) { r.push(['FAIL', n + ' :: ' + e.message]) } }
 const g = (o) => isAtPrompt({ ...base, ...o })
 

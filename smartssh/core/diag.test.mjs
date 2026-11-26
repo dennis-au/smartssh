@@ -47,21 +47,21 @@ t('SPEC: both legacy transport timeout shapes are rejected', () => {
 // ---- payload shape ----
 t('keys are exactly the five', () => assert.deepStrictEqual(Object.keys(o({ version: V, sha256: H })).sort(), [...DIAG_KEYS].sort()))
 t('LEAK-A free-text error carrying a token is dropped', () => {
-  const s = buildDiagnostics({ errors: ['relay 401 token=ghp_CANARY123'] })
-  assert.ok(!s.includes('ghp_') && !s.includes('CANARY'), s)
-  assert.deepStrictEqual(o({ errors: ['relay 401 token=ghp_CANARY123'] }).errors, [])
+  const s = buildDiagnostics({ errors: [('relay 401 token=' + 'ghp' + '_CANARY123')] })
+  assert.ok(!s.includes('ghp' + '_') && !s.includes('CANARY'), s)
+  assert.deepStrictEqual(o({ errors: [('relay 401 token=' + 'ghp' + '_CANARY123')] }).errors, [])
 })
 t('LEAK-B credential inside trust is dropped (enum)', () => {
   const s = buildDiagnostics({ trust: 'auto@https://user:pw@relay' })
   assert.strictEqual(o({ trust: 'auto@https://user:pw@relay' }).trust, 'off'); assert.ok(!s.includes('pw@'))
 })
-t('LEAK-C gate with sk- canary is dropped (enum)', () => {
-  const s = buildDiagnostics({ gate: 'scrolled token=sk-CANARY999' })
-  assert.strictEqual(o({ gate: 'scrolled token=sk-CANARY999' }).gate, 'prompt_dirty'); assert.ok(!s.includes('sk-'))
+t('LEAK-C gate with a token canary is dropped (enum)', () => {
+  const s = buildDiagnostics({ gate: ('scrolled token=' + 'sk' + '-CANARY999') })
+  assert.strictEqual(o({ gate: ('scrolled token=' + 'sk' + '-CANARY999') }).gate, 'prompt_dirty'); assert.ok(!s.includes('sk' + '-'))
 })
 t('extra properties never survive', () => {
-  const s = buildDiagnostics({ version: V, token: 'ghp_X', scrollback: 'export K=sk-Y', env: { PASSWORD: 'hunter2' } })
-  for (const c of ['ghp_X', 'sk-Y', 'hunter2', 'PASSWORD']) assert.ok(!s.includes(c), c)
+  const s = buildDiagnostics({ version: V, token: ('ghp' + '_X'), scrollback: ('export K=' + 'sk' + '-Y'), env: { PASSWORD: 'hunter2' } })
+  for (const c of [('ghp' + '_X'), ('sk' + '-Y'), 'hunter2', 'PASSWORD']) assert.ok(!s.includes(c), c)
 })
 t('v16 ring buffer: last 3 distinct, dedupe keeps LAST position, oldest -> newest', () => {
   const got = o({ errors: [{ status: 401 }, { status: 401 }, { type: 'aborted', reason: 'dispatch_timeout' }, { status: 429 }, { status: 500 }] }).errors

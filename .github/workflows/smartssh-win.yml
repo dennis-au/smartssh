@@ -55,7 +55,9 @@ jobs:
             builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           }
           New-Item -ItemType Directory -Force -Path extras | Out-Null
-          $info | ConvertTo-Json | Out-File -Encoding utf8 extras/smartssh-buildinfo.json
+          # PS 5.1 "Out-File -Encoding utf8" writes a BOM; JSON.parse then throws and the app
+          # falls back to "dev". Write UTF-8 without BOM explicitly.
+          [IO.File]::WriteAllText((Join-Path $PWD "extras/smartssh-buildinfo.json"), ($info | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
           Get-Content extras/smartssh-buildinfo.json
       - name: Portable exe
         id: portable
@@ -64,11 +66,13 @@ jobs:
         id: hash
         shell: powershell
         run: |
+          $lines = @()
           Get-ChildItem dist -Filter *portable*.exe | ForEach-Object {
             $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-            "$($_.Name)  $h" | Out-File -Append artifact-sha256.txt
+            $lines += "$($_.Name)  $h"
             Write-Host $_.Name $h
           }
+          [IO.File]::WriteAllLines((Join-Path $PWD "artifact-sha256.txt"), $lines, (New-Object Text.UTF8Encoding($false)))
           Get-Content artifact-sha256.txt
       - name: Publish status (credential-free read channel for the build agent)
         if: always()
@@ -93,12 +97,12 @@ jobs:
           Get-ChildItem dist -Filter *portable*.exe -ErrorAction SilentlyContinue | ForEach-Object {
             $exe = "$($_.Name) $([math]::Round($_.Length/1MB,1))MB"
           }
+          # Public repo: this file is world-readable. Identity + the six step outcomes only —
+          # no runner name, no OS build number, no paths, no timestamps.
           $out = [ordered]@{
             run      = [int]$env:RUN_NUMBER
-            run_id   = $env:RUN_ID
-            status   = $env:JOB_STATUS
             commit   = $env:SHA
-            version  = $env:SMARTSSH_VERSION
+            status   = $env:JOB_STATUS
             steps    = [ordered]@{
               install   = $env:S_INSTALL
               tests     = $env:S_TESTS
@@ -109,10 +113,9 @@ jobs:
             }
             sha256   = $hash
             exe      = $exe
-            at       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           }
           New-Item -ItemType Directory -Force -Path ci-status | Out-Null
-          $out | ConvertTo-Json -Depth 3 | Out-File -Encoding utf8 "ci-status/$($env:RUN_NUMBER).json"
+          [IO.File]::WriteAllText((Join-Path $PWD "ci-status/$($env:RUN_NUMBER).json"), ($out | ConvertTo-Json -Depth 3), (New-Object Text.UTF8Encoding($false)))
           Get-Content "ci-status/$($env:RUN_NUMBER).json"
       - name: Commit status
         if: always()
