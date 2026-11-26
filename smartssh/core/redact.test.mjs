@@ -290,6 +290,31 @@ test('a whole PEM block is replaced by one multiline mask', () => {
   for (const line of body) assert.ok(!result.text.includes(line))
 })
 
+test('PEM masks start at BEGIN regardless of the preceding text', () => {
+  const pem = canaries.find(([rule]) => rule === 'private_key')[1]
+  for (const prefix of ['', 'line-8 ', '+', '  ', '2026-11-26T14:21:00Z ', '$ cat id_rsa\n']) {
+    const block = prefix === '+' ? pem.replaceAll('\n', '\n+') : pem
+    const input = `${prefix}${block} tail`
+    const result = redact(input)
+    assert.deepEqual(result.masks.map(m => m.rule), ['private_key'], prefix)
+    assert.deepEqual(result.masks[0].srcSpan, { start: prefix.length, end: prefix.length + block.length }, prefix)
+    assert.equal(result.text, `${prefix}*** tail`, prefix)
+  }
+})
+
+test('a PEM mask contains and replaces a nested password mask', () => {
+  const pem = '-----BEGIN PRIVATE KEY-----\nPassword: hun\u200Bter2\n-----END PRIVATE KEY-----'
+  const result = redact(`${pem}\u200B`)
+  assert.deepEqual(result.masks.map(m => m.rule), ['private_key'])
+  assert.equal(result.masks[0].invisibleInside, 2)
+  assert.equal(result.text, '***')
+})
+
+test('partial overlap still throws', () => {
+  const input = 'Password: prefix -----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----'
+  assert.throws(() => redact(input), /redaction masks overlap/)
+})
+
 test('only private_key is whitelisted for multiline masks', () => {
   assert.deepEqual(MULTILINE_RULES, ['private_key'])
 })

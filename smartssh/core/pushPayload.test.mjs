@@ -88,6 +88,12 @@ const tests = [
     assert.equal(push.masks[0].rule, 'private_key')
     assert.equal(push.masks[0].srcLines, 5)
   }],
+  ['PEM containing a password is one redacted segment', () => {
+    const push = buildContextPush(withLines([`line-8 ${pem[0]}`, 'Password: hunter2', pem.at(-1)]))
+    assert.equal(push.text, 'line-8 ***')
+    assert.equal(push.redacted_segments, 1)
+    assert.deepEqual(push.masks.map(({ rule }) => rule), ['private_key'])
+  }],
   ['PEM at the start of the window maps to the first source line', () => {
     const push = buildContextPush(withLines([...pem, 'after']))
     const [mask] = push.masks
@@ -128,8 +134,8 @@ const tests = [
   ['serialized payload hides the split token and its mask escalates severity', () => {
     const suffix = 'CANARY_split_fixture_7890'
     const canary = `ghp_\u200B${suffix}`
-    const payload = buildContextPush(withLines(['a', canary, 'c']))
-    assert.equal(payload.text, 'a\n***\nc')
+    const payload = buildContextPush(withLines(['a\u200Bb', canary, 'c']))
+    assert.equal(payload.text, 'a\u200Bb\n***\nc')
     const serialized = JSON.stringify(payload)
     assert.ok(!serialized.includes(canary))
     assert.ok(!serialized.includes(suffix))
@@ -207,12 +213,18 @@ const tests = [
   ['empty host throws', () => {
     assert.throws(() => buildContextPush({ ...sample(), host: '' }), /host/)
   }],
-  ['empty enabledRules disables masking', () => {
-    const input = sample()
-    const payload = buildContextPush({ ...input, enabledRules: [] })
-    assert.equal(payload.text, input.lines.join('\n'))
-    assert.deepEqual(payload.masks, [])
-    assert.equal(payload.redacted_segments, 0)
+  ['the audit blocks a missed credential without putting it in the error message', () => {
+    const canary = 'fixtureCanary12345678'
+    assert.throws(() => buildContextPush(withLines([`TOKEN=${canary}`])), error => {
+      assert.equal(error.code, 'AUDIT_UNCOVERED')
+      assert.equal(error.message, 'audit found an unmasked secret-like span')
+      assert.ok(!error.message.includes('fixtureCanary'))
+      assert.equal(error.findings.length, 1)
+      return true
+    })
+  }],
+  ['disabling a rule does not bypass the audit', () => {
+    assert.throws(() => buildContextPush({ ...sample(), enabledRules: [] }), { code: 'AUDIT_UNCOVERED' })
   }],
   ['two secrets produce two coherent masks', () => {
     const input = sample()
@@ -233,7 +245,7 @@ const tests = [
     assertMaskSlices(payload)
   }],
   ['all counters are present even when zero', () => {
-    const payload = buildContextPush({ ...sample(), enabledRules: [] })
+    const payload = buildContextPush(withLines(['echo keep']))
     for (const key of ['truncated_lines', 'redacted_segments', 'invisible_escalation']) {
       assert.ok(Object.hasOwn(payload, key))
       assert.equal(payload[key], 0)

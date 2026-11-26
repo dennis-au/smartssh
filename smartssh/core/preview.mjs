@@ -49,9 +49,11 @@ export function scanInvisibles (text) {
   }
 }
 
+// Only payload.severity expresses a severity opinion; counts are evidence, not severity labels.
 export function payloadSeverity (payload) {
-  if (payload?.masks?.some(mask => mask.invisibleInside > 0)) return 'deception'
-  return scanInvisibles(previewText(payload)).suspicious > 0 ? 'suspicious' : 'none'
+  const { deception, suspicious } = scanInvisibles(previewText(payload))
+  if (payload.invisible_escalation > 0 || deception > 0) return 'deception'
+  return suspicious > 0 ? 'suspicious' : 'none'
 }
 
 // display is for rendering only. The clipboard source is always previewText(payload),

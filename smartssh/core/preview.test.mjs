@@ -125,17 +125,20 @@ const tests = [
     })
     assert.ok(previewDisplay({ text }, { showInvisibles: true }).display.startsWith(clean + '⟦U+00AD⟧'))
   }],
-  ['payload severity prioritizes masks, then suspicious text, and ignores emoji joiners', () => {
+  ['payload severity takes the worst of escalation and visible text', () => {
     for (const [payload, expected] of [
       [build('ghp_\u200Bfixture'), 'deception'],
       [build('ghp_\u200Bfixture', 'a\u200Bb'), 'deception'],
+      [build('a\u200Bb\u202Ec'), 'deception'],
+      [build('a\u200Db'), 'deception'],
       [build('ghp_fixture', 'a\u200Bb'), 'suspicious'],
       [build('👩‍💻'), 'none'],
     ]) {
       assert.equal(payload.severity, expected)
-      const { text, masks } = payload
-      assert.equal(payloadSeverity({ text, masks }), expected)
+      const { text, invisible_escalation } = payload
+      assert.equal(payloadSeverity({ text, invisible_escalation }), expected)
     }
+    assert.equal(payloadSeverity({ text: '***', masks: [{ invisibleInside: 1 }], invisible_escalation: 0 }), 'none')
   }],
   ['non-string payload text throws instead of coercing', () => {
     assert.throws(() => previewText({ text: 42 }), { message: 'preview payload has no text' })

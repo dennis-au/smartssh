@@ -30,7 +30,7 @@ const PATTERNS = {
   url_cred: /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/([^\s:/@"'<>]+:[^\s/@"'<>]+)@(?=[A-Za-z0-9\[])/dg,
   cli_password: /(?<![\w-])--password(?:=|[ \t]+)(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s"']+))/dg,
   known_prefix: /\b((?:sk-|ghp_|AKIA|xoxb-)[A-Za-z0-9_-]+|ssh-rsa[ \t]+AAAA[A-Za-z0-9+/]*={0,2})/dg,
-  private_key: /(^-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t]*\r?\n[\s\S]*?^-----END \2-----)(?=[ \t]*$)/dgm,
+  private_key: /(-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t]*\r?\n[\s\S]*?-----END \2-----)/dg,
   password_prompt: /^[ \t]*((?:\[sudo\][ \t]*)?password[^:\n]*:[ \t]*)(\S.*)$/dgim,
 }
 
@@ -80,10 +80,18 @@ export function redact (text, opts = {}) {
     }
   }
 
-  spans.sort((a, b) => a.start - b.start)
-  for (let i = 0; i < spans.length; i++) {
-    const span = spans[i]
-    const limit = spans[i + 1]?.start ?? input.length
+  // Sort outer spans first, including when they have the same start.
+  spans.sort((a, b) => a.start - b.start || b.end - a.end)
+  let furthestEnd = 0
+  const kept = spans.filter(span => {
+    if (span.end <= furthestEnd) return false
+    furthestEnd = span.end
+    return true
+  })
+
+  for (let i = 0; i < kept.length; i++) {
+    const span = kept[i]
+    const limit = kept[i + 1]?.start ?? input.length
     // Keep the boxes separate; trailing invisibles belong to the earlier match.
     while (span.end < limit && isInvisible(input[span.end])) span.end++
     const source = input.slice(span.start, span.end)
@@ -98,12 +106,12 @@ export function redact (text, opts = {}) {
   }
 
   // Check source spans before replacing them; returned offsets point at the replacement.
-  assertDisjointMasks(spans, input)
+  assertDisjointMasks(kept, input)
 
   let output = ''
   let cursor = 0
   const masks = []
-  for (const { rule, start, end, invisibleInside } of spans) {
+  for (const { rule, start, end, invisibleInside } of kept) {
     output += input.slice(cursor, start)
     const offset = output.length
     output += MASK
