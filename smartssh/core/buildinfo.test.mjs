@@ -27,6 +27,13 @@ t('a 64-hex token smuggled into a field is rejected (commit must be 7..40 hex)',
   const sneaky = '{"base":"1.0.238","build":"sms.42","commit":"' + 'a'.repeat(64) + '"}'
   assert.strictEqual(parseBuildInfo(sneaky), null)
 })
+t('local.<n> is accepted, arbitrary build strings are not', () => {
+  const local = '{"base":"1.0.238","build":"local.7","commit":"54869e1"}'
+  assert.deepStrictEqual(parseBuildInfo(local), { base: '1.0.238', build: 'local.7', commit: '54869e1' })
+  assert.strictEqual(formatVersion(parseBuildInfo(local)), '1.0.238 · local.7 · 54869e1')
+  assert.strictEqual(parseBuildInfo('{"base":"1.0.238","build":"dev","commit":"54869e1"}'), null)
+  assert.strictEqual(parseBuildInfo('{"base":"1.0.238","build":"sms.x","commit":"54869e1"}'), null)
+})
 t('stripBom only removes a leading BOM', () => {
   assert.strictEqual(stripBom(BOM + 'x'), 'x')
   assert.strictEqual(stripBom('x' + BOM), 'x' + BOM)

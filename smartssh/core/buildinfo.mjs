@@ -5,7 +5,9 @@
 // anything unexpected yields `null` and the UI shows "dev" — never a plausible-looking fake.
 
 export const BASE_RE = /^\d+\.\d+\.\d+$/
-export const BUILD_RE = /^sms\.\d+$/
+// 'sms.<n>' comes from GitHub run numbers, 'local.<n>' from build-local.ps1 — both are builds,
+// 'dev' stays reserved for a checkout with no buildinfo at all (yarn start).
+export const BUILD_RE = /^(sms|local)\.\d+$/
 export const COMMIT_RE = /^[0-9a-f]{7,40}$/
 
 export function stripBom (text) {
