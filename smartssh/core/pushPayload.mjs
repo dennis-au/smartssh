@@ -1,4 +1,4 @@
-// contract: v41
+// contract: v44
 import { redact } from './redact.mjs'
 
 export const TRIGGERS = Object.freeze(['manual', 'l', 'ask', 'hermes_request'])
@@ -39,7 +39,11 @@ export function buildContextPush (input) {
   const masks = redactions.map(({ rule, start, end, srcSpan }) => {
     if (text.slice(start, end) !== '***') throw new Error('context.push mask does not point at ***')
     const bufferLine = maskBufferLine(sourceWindow, { srcSpan })
-    return { rule, start, end, srcSpan, bufferLine }
+    // “Do not store derived numbers” applies only to values derivable from what
+    // is already returned. Compute values that need the raw source at build
+    // time: dropping the raw text wins over purity.
+    const srcLines = windowText.slice(srcSpan.start, srcSpan.end).split('\n').length
+    return { rule, start, end, srcSpan, bufferLine, srcLines }
   })
 
   return { trigger, tab_id, host, range, lines, truncated_lines, redacted_segments: masks.length, text, masks }

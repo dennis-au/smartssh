@@ -1,4 +1,4 @@
-// contract: v41
+// contract: v44
 // metrics-check.mjs — assertion side of the UI measurement file.
 //   node smartssh/core/metrics-check.mjs --metrics data/metrics.json [--buildinfo extras/smartssh-buildinfo.json]
 // exit 0 = no FAIL (skips allowed), 2 = at least one FAIL, 1 = could not read/parse.

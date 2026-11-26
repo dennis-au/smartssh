@@ -45,6 +45,11 @@ const tests = [
     assert.equal(payload.redacted_segments, payload.masks.length)
     assertMaskSlices(payload)
   }],
+  ['single-line env_key mask covers one source line', () => {
+    const { masks } = buildContextPush(sample())
+    assert.equal(masks[0].rule, 'env_key')
+    assert.equal(masks[0].srcLines, 1)
+  }],
   ['missing trigger throws', () => {
     const input = sample()
     delete input.trigger
@@ -78,7 +83,18 @@ const tests = [
     assert.equal(push.text, 'before\n***\nafter')
     assert.ok(push.text.split('\n').length < push.lines.length)
     assert.equal(push.redacted_segments, 1)
+    assert.equal(push.redacted_segments, push.masks.length)
+    assert.equal(push.masks.length, 1)
     assert.equal(push.masks[0].rule, 'private_key')
+    assert.equal(push.masks[0].srcLines, 5)
+  }],
+  ['PEM at the start of the window maps to the first source line', () => {
+    const push = buildContextPush(withLines([...pem, 'after']))
+    const [mask] = push.masks
+    assert.equal(mask.start, 0)
+    assert.equal(mask.srcSpan.start, 0)
+    assert.equal(mask.bufferLine, push.range.fromLine)
+    assert.equal(mask.srcLines, 5)
   }],
   ['secret after collapsed PEM retains its source buffer line', () => {
     const input = largeSample()
@@ -92,10 +108,13 @@ const tests = [
     assertMaskSlices(push)
   }],
   ['push has no windowText or undefined values and carries complete masks', () => {
-    const push = buildContextPush(sample())
+    const push = buildContextPush(withLines([...pem, 'DEMO_TOKEN=example-token']))
     assert.ok(!Object.hasOwn(push, 'windowText'))
     assert.deepEqual(push, JSON.parse(JSON.stringify(push)))
-    assert.deepEqual(Object.keys(push.masks[0]).sort(), ['bufferLine', 'end', 'rule', 'srcSpan', 'start'])
+    assert.equal(push.masks.length, 2)
+    for (const mask of push.masks) {
+      assert.deepEqual(Object.keys(mask).sort(), ['bufferLine', 'end', 'rule', 'srcLines', 'srcSpan', 'start'])
+    }
   }],
   ['range off by one throws', () => {
     assert.throws(() => buildContextPush({ ...sample(), range: { fromLine: 101, toLine: 109, at } }), rangeError)
