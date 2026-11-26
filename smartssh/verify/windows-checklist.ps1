@@ -59,37 +59,27 @@ try {
     Remove-Item $ro -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# ---- 3. UI measurements (only when the build can report them) --------------
-# The app should write data\metrics.json when SMARTSSH_MEASURE=1. Without it there is nothing
-# to measure, so say SKIPPED with the reason — never PASS by default.
+# ---- 3. UI measurements (delegated to the node judge) ----------------------
+# The assertions live in smartssh/core/metrics.mjs (tested, 13/13) so the Windows side never
+# re-implements them. No metrics file, or no node => SKIPPED with the reason, never PASS.
 if (-not $MetricsPath) {
     $candidate = Join-Path (Split-Path $item.FullName) "data\metrics.json"
     if (Test-Path $candidate) { $MetricsPath = $candidate }
 }
+$node = (Get-Command node -ErrorAction SilentlyContinue)
 if (-not $MetricsPath -or -not (Test-Path $MetricsPath)) {
-    Skip "viewport height at 683x512" "no data\metrics.json — no measurement hook / no bar UI in this build"
-    Skip "bar auto-collapse after 8s" "no data\metrics.json"
-    Skip "height at 911x512" "no data\metrics.json"
-    Skip "split pane uses @container not @media" "no data\metrics.json"
-    Skip "chrome heights (titlebar / tab strip / statusbar)" "no data\metrics.json"
+    Skip "UI metrics" "no data\metrics.json - this build has no measurement hook / no bar UI"
+} elseif (-not $node) {
+    Skip "UI metrics" "node not found on PATH; run: node smartssh\core\metrics-check.mjs --metrics $MetricsPath"
 } else {
-    $m = Get-Content $MetricsPath -Raw | ConvertFrom-Json
-    Info "metrics source" $MetricsPath
-    Info "titlebar / tab strip / statusbar" ("$($m.titlebarPx) / $($m.tabStripPx) / $($m.statusbarPx)")
-    Info "bar height" ($m.barHeightPx)
-    Info "viewport height" ($m.viewportHeightPx)
-
-    if ($null -eq $m.viewportHeightPx) { Skip "viewport height at 683x512" "metrics has no viewportHeightPx" }
-    else { Check "viewport height >= 120 at 683x512" ($m.viewportHeightPx -ge 120) ("viewport=" + $m.viewportHeightPx + "px") }
-
-    if ($null -eq $m.barCollapsedAfter8s) { Skip "bar auto-collapse after 8s" "metrics has no barCollapsedAfter8s" }
-    else { Check "bar collapses 8s after the terminal state" ([bool]$m.barCollapsedAfter8s) ("collapsed=" + $m.barCollapsedAfter8s) }
-
-    if ($null -eq $m.height911x512) { Skip "height at 911x512" "not measured" }
-    else { Check "layout at 911x512 has no internal vertical overflow" ([bool]$m.height911x512) ("ok=" + $m.height911x512) }
-
-    if ($null -eq $m.splitPaneCompact) { Skip "split pane uses @container" "not measured" }
-    else { Check "small pane goes compact, large pane does not" ([bool]$m.splitPaneCompact) ("smallPaneCompact=" + $m.splitPaneCompact) }
+    $judge = Join-Path (Split-Path $PSScriptRoot -Parent) "core\metrics-check.mjs"
+    $binfo = Join-Path (Split-Path $item.FullName) "resources\extras\smartssh-buildinfo.json"
+    $argv = @($judge, "--metrics", $MetricsPath)
+    if (Test-Path $binfo) { $argv += @("--buildinfo", $binfo) }
+    & $node.Source @argv
+    $code = $LASTEXITCODE
+    if ($code -eq 0) { Write-Host "PASS     UI metrics judged (see lines above)" -ForegroundColor Green }
+    else { Write-Host "FAIL     UI metrics judged (see lines above)" -ForegroundColor Red; $script:fail++ }
 }
 
 Write-Host ""
