@@ -1,3 +1,4 @@
+// contract: v40
 // redact.mjs — find secret spans in terminal text without changing their surrounding syntax.
 export const RULES = ['env_key', 'bearer', 'url_cred', 'cli_password', 'known_prefix', 'private_key', 'password_prompt']
 export const MULTILINE_RULES = ['private_key']
