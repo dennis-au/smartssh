@@ -20,11 +20,13 @@ export const GATE = {
  * @param {boolean} s.selection
  * @param {number} s.viewportY
  * @param {number} s.baseY
+ * @param {boolean} s.tailIsHint  true only when the caller proved the cells AFTER the cursor are
+ *                                shell-drawn hints (dim/italic/known suggestion colour). Never guessed.
  * @returns {{gate: string, reason: string}}
  */
 export function isAtPrompt (s) {
   const { line = '', cursorX = 0, token = '', tokenTrusted = false,
-    altScreen = false, selection = false, viewportY = 0, baseY = 0 } = s
+    altScreen = false, selection = false, viewportY = 0, baseY = 0, tailIsHint = false } = s
 
   if (altScreen) return { gate: GATE.ALT, reason: 'alt_screen' }
   if (selection) return { gate: GATE.DIRTY, reason: 'selection' }
@@ -46,8 +48,11 @@ export function isAtPrompt (s) {
     return { gate: GATE.CONT, reason: 'continuation' }
   }
 
-  // text after the cursor: user moved the caret back / shell hint we cannot classify
-  if (tail.trimEnd() !== '') return { gate: GATE.DIRTY, reason: 'text_after_cursor' }
+  // Text after the cursor is ambiguous: it is either the user's own text (caret moved back —
+  // must block) or a shell-drawn hint such as zsh-autosuggestions (must not block).
+  // The caller decides by inspecting the CELLS (dim/italic/suggestion colour); default is
+  // fail-closed, so a guess can only ever cost an auto-run, never cause one.
+  if (tail.trimEnd() !== '' && !tailIsHint) return { gate: GATE.DIRTY, reason: 'text_after_cursor' }
 
   return { gate: GATE.CLEAN, reason: 'clean' }
 }
