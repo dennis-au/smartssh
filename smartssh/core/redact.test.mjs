@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { RULES, redact } from './redact.mjs'
+import { MULTILINE_RULES, RULES, redact } from './redact.mjs'
 
 const canaries = [
   ['env_key', 'APP_TOKEN="secret-env"', 'APP_TOKEN="***"'],
@@ -8,7 +8,7 @@ const canaries = [
   ['cli_password', 'login --password=secret-cli --verbose', 'login --password=*** --verbose'],
   ['known_prefix', 'token ghp_example suffix', 'token *** suffix'],
   ['private_key', '-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-key\n-----END OPENSSH PRIVATE KEY-----', '***'],
-  ['password_prompt', 'Password:\nsecret-input with spaces', '***'],
+  ['password_prompt', 'Password: secret-input with spaces', 'Password: ***'],
 ]
 const allCanaries = canaries.map(([, input]) => input).join('\n')
 
@@ -69,7 +69,7 @@ test('redacting masked output is a no-op', () => {
 })
 
 test('clean text is returned unchanged', () => {
-  const text = 'Connected to https://example.com\nPassword: not a standalone prompt\n  done.'
+  const text = 'Connected to https://example.com\nPassword:\n  done.'
   assert.deepEqual(redact(text), { text, masks: [] })
 })
 
@@ -93,12 +93,66 @@ test('quoted CLI values retain their quotes and overlapping rules mask once', ()
 })
 
 test('multiline rules preserve surrounding lines and PEM labels must match', () => {
-  const input = 'before\r\n-----BEGIN RSA PRIVATE KEY-----\r\nfixture\r\n-----END RSA PRIVATE KEY-----\r\nkeep\r\n  Password: \r\ntwo words\r\nafter'
+  const input = 'before\r\n-----BEGIN RSA PRIVATE KEY-----\r\nfixture\r\n-----END RSA PRIVATE KEY-----\r\nkeep\r\n  Password: two words\r\nafter'
   const result = redact(input)
-  assert.equal(result.text, 'before\r\n***\r\nkeep\r\n***\r\nafter')
+  assert.equal(result.text, 'before\r\n***\r\nkeep\r\n  Password: ***\r\nafter')
   assert.deepEqual(result.masks.map(m => m.rule), ['private_key', 'password_prompt'])
   const mismatch = input.split('\r\nkeep')[0].replace('END RSA', 'END OPENSSH')
   assert.deepEqual(redact(mismatch), { text: mismatch, masks: [] })
+})
+
+test('password prompts mask only the inline value', () => {
+  for (const [label, value] of [['Password: ', 'hunter2'], ['[sudo] password for hermes: ', 'pw']]) {
+    const result = redact(label + value)
+    assert.deepEqual(result.masks, [{ rule: 'password_prompt', start: label.length, end: label.length + 3 }])
+    const [{ start, end }] = result.masks
+    assert.equal(result.text.slice(start, end), '***')
+    assert.equal(result.text, `${label}***`)
+    assert.ok(!result.text.includes(value))
+  }
+})
+
+test('empty password prompts leave the next line untouched', () => {
+  for (const text of ['Password:\nls -la /tmp', 'Password: \nls -la /tmp', 'Password: \r\nls -la /tmp']) {
+    assert.deepEqual(redact(text), { text, masks: [] })
+  }
+})
+
+test('config dump password masking preserves surrounding lines', () => {
+  const result = redact('cat config.ini\n[db]\nPassword: hunter2\nhost=db1')
+  assert.equal(result.text, 'cat config.ini\n[db]\nPassword: ***\nhost=db1')
+  assert.deepEqual(result.masks.map(m => m.rule), ['password_prompt'])
+})
+
+// With one replacement, the length difference maps the output end back to the source end.
+function singleMaskSource (input, { text, masks }) {
+  assert.equal(masks.length, 1)
+  const [{ start, end }] = masks
+  return input.slice(start, end + input.length - text.length)
+}
+
+test('a whole PEM block is replaced by one multiline mask', () => {
+  const body = ['fixture-key-line-one', 'fixture-key-line-two']
+  const pem = ['-----BEGIN OPENSSH PRIVATE KEY-----', ...body, '-----END OPENSSH PRIVATE KEY-----'].join('\n')
+  const input = `before\n${pem}\nafter`
+  const result = redact(input)
+  assert.deepEqual(result.masks.map(m => m.rule), ['private_key'])
+  const source = singleMaskSource(input, result)
+  assert.ok(source.includes('\n'))
+  assert.equal(source, pem)
+  assert.equal(result.text, 'before\n***\nafter')
+  for (const line of body) assert.ok(!result.text.includes(line))
+})
+
+test('only private_key is whitelisted for multiline masks', () => {
+  assert.deepEqual(MULTILINE_RULES, ['private_key'])
+})
+
+test('only the private_key canary produces a multiline source span', () => {
+  for (const [rule, canary] of canaries) {
+    const input = `before\n${canary}\nafter`
+    assert.equal(singleMaskSource(input, redact(input)).includes('\n'), rule === 'private_key', rule)
+  }
 })
 
 console.log(`${passes}/${passes + fails} passed`)

@@ -1,5 +1,6 @@
 // redact.mjs — find secret spans in terminal text without changing their surrounding syntax.
 export const RULES = ['env_key', 'bearer', 'url_cred', 'cli_password', 'known_prefix', 'private_key', 'password_prompt']
+export const MULTILINE_RULES = ['private_key']
 
 const MASK = '***'
 // Capture the replacement span separately from context. CLI quoting uses alternate captures.
@@ -10,7 +11,7 @@ const PATTERNS = {
   cli_password: /(?<![\w-])--password(?:=|[ \t]+)(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s"']+))/dg,
   known_prefix: /\b((?:sk-|ghp_|AKIA|xoxb-)[A-Za-z0-9_-]+|ssh-rsa[ \t]+AAAA[A-Za-z0-9+/]*={0,2})/dg,
   private_key: /(^-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t]*\r?\n[\s\S]*?^-----END \2-----)(?=[ \t]*$)/dgm,
-  password_prompt: /(^[ \t]*Password:[ \t]*\r?\n[^\r\n]+)/dgim,
+  password_prompt: /^[ \t]*((?:\[sudo\][ \t]*)?password[^:\n]*:[ \t]*)(\S.*)$/dgim,
 }
 
 export function redact (text, opts = {}) {
@@ -20,7 +21,9 @@ export function redact (text, opts = {}) {
   for (const [rule, pattern] of Object.entries(PATTERNS)) {
     if (!enabled.has(rule)) continue
     for (const match of input.matchAll(pattern)) {
-      const [start, end] = match.indices[1] ?? match.indices[2] ?? match.indices[3]
+      const [start, end] = rule === 'password_prompt'
+        ? match.indices[2]
+        : (match.indices[1] ?? match.indices[2] ?? match.indices[3])
       if (input.slice(start, end) !== MASK) spans.push({ rule, start, end })
     }
   }
@@ -33,6 +36,13 @@ export function redact (text, opts = {}) {
     const prev = merged[merged.length - 1]
     if (prev && span.start < prev.end) prev.end = Math.max(prev.end, span.end)
     else merged.push(span)
+  }
+
+  // Check source spans before replacing them; returned offsets point at the replacement.
+  for (const { rule, start, end } of merged) {
+    if (input.slice(start, end).includes('\n') && !MULTILINE_RULES.includes(rule)) {
+      throw new Error(`rule ${rule} produced a mask spanning a newline`)
+    }
   }
 
   let output = ''
