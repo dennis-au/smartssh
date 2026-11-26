@@ -5,6 +5,9 @@ on:
     paths-ignore:
       - 'ci-status/**'
   workflow_dispatch:
+concurrency:
+  group: smartssh-win-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: write
 env:
