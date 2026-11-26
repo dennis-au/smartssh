@@ -34,6 +34,16 @@ t('local.<n> is accepted, arbitrary build strings are not', () => {
   assert.strictEqual(parseBuildInfo('{"base":"1.0.238","build":"dev","commit":"54869e1"}'), null)
   assert.strictEqual(parseBuildInfo('{"base":"1.0.238","build":"sms.x","commit":"54869e1"}'), null)
 })
+t('local commit parses and is preserved in the version chip', () => {
+  const info = parseBuildInfo('{"base":"1.0.238","build":"local.7","commit":"local"}')
+  assert.deepStrictEqual(info, { base: '1.0.238', build: 'local.7', commit: 'local' })
+  assert.strictEqual(formatVersion(info), '1.0.238 · local.7 · local')
+})
+t('unknown and short commit values still return null', () => {
+  for (const commit of ['unknown0', 'abc']) {
+    assert.strictEqual(parseBuildInfo(JSON.stringify({ base: '1.0.238', build: 'local.7', commit })), null, commit)
+  }
+})
 t('stripBom only removes a leading BOM', () => {
   assert.strictEqual(stripBom(BOM + 'x'), 'x')
   assert.strictEqual(stripBom('x' + BOM), 'x' + BOM)

@@ -8,7 +8,7 @@ export const BASE_RE = /^\d+\.\d+\.\d+$/
 // 'sms.<n>' comes from GitHub run numbers, 'local.<n>' from build-local.ps1 — both are builds,
 // 'dev' stays reserved for a checkout with no buildinfo at all (yarn start).
 export const BUILD_RE = /^(sms|local)\.\d+$/
-export const COMMIT_RE = /^[0-9a-f]{7,40}$/
+export const COMMIT_RE = /^[0-9a-f]{7,40}$|^local$/
 
 export function stripBom (text) {
   if (typeof text !== 'string') return ''

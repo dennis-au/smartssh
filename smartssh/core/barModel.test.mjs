@@ -1,9 +1,11 @@
 import assert from 'node:assert'
-import { barModel, stateFor, elementPolicy, mayEnter, transition, STATES, RISKS, REASONS } from './barModel.mjs'
+import { barModel, stateFor, elementPolicy, mayEnter, transition, STATES, RISKS, REASONS, CAUSES } from './barModel.mjs'
 import { GATE } from './gate.mjs'
 const r = []; const t = (n, f) => { try { f(); r.push(['PASS', n]) } catch (e) { r.push(['FAIL', n + ' :: ' + e.message]) } }
 const clean = { gate: GATE.CLEAN, reason: 'clean' }
 const m = (o = {}) => barModel({ state: 'proposed', risk: 'write', gate: clean, autoRun: 'off', ...o })
+const autoCtx = { autoRun: 'on', gate: clean }
+const confirmCtx = { ...autoCtx, risk: 'danger', code: '4218', proposal: { confirm_expected: '4218' } }
 
 t('nine states on the DOM, three risks', () => {
   assert.deepStrictEqual(STATES, ['proposed','counting','settling','executing','exited','rejected','aborted','expired','offline'])
@@ -37,16 +39,54 @@ t('counting offers run_now + cancel, and never approve', () => {
   assert.deepStrictEqual(c, ['run_now', 'cancel'])
   assert.ok(!c.includes('approve'))
 })
-t('mayEnter: counting only from auto-run + clean gate', () => {
-  assert.strictEqual(mayEnter('counting', { autoRun: 'on', gate: { gate: 'clean' } }), true)
-  assert.strictEqual(mayEnter('counting', { autoRun: 'off', gate: { gate: 'clean' } }), false)
-  assert.strictEqual(mayEnter('counting', { autoRun: 'on', gate: { gate: 'prompt_dirty' } }), false)
+t('mayEnter: counting only for read risk with auto-run + clean gate', () => {
+  assert.strictEqual(mayEnter('counting', { ...autoCtx, risk: 'read' }), true)
+  assert.strictEqual(mayEnter('counting', { ...autoCtx, risk: 'read', autoRun: 'off' }), false)
+  assert.strictEqual(mayEnter('counting', { ...autoCtx, risk: 'read', gate: { gate: 'prompt_dirty' } }), false)
+  assert.strictEqual(mayEnter('counting', { ...autoCtx, risk: 'write' }), false)
+  assert.strictEqual(mayEnter('counting', { ...autoCtx, risk: 'danger' }), false)
   assert.strictEqual(mayEnter('proposed', {}), true)
 })
-t('transition: manual approve skips the countdown, auto-run goes through it', () => {
-  assert.strictEqual(transition('proposed', 'approve', { autoRun: 'off', gate: { gate: 'clean' } }), 'executing')
-  assert.strictEqual(transition('proposed', 'approve', { autoRun: 'on', gate: { gate: 'clean' } }), 'counting')
-  assert.strictEqual(transition('proposed', 'approve', { autoRun: 'on', gate: { gate: 'prompt_dirty' } }), 'executing')
+t('transition: plain approve refuses danger and counts down only for clean read auto-run', () => {
+  assert.throws(() => transition('proposed', 'approve', { ...autoCtx, risk: 'danger' }), /danger requires confirm_code, not approve/)
+  assert.strictEqual(transition('proposed', 'approve', { ...autoCtx, risk: 'read', autoRun: 'off' }), 'executing')
+  assert.strictEqual(transition('proposed', 'approve', { ...autoCtx, risk: 'read' }), 'counting')
+  assert.strictEqual(transition('proposed', 'approve', { ...autoCtx, risk: 'write' }), 'executing')
+  assert.strictEqual(transition('proposed', 'approve', { ...autoCtx, risk: 'read', gate: { gate: 'prompt_dirty' } }), 'executing')
+})
+t('every rendered control has a working transition except plain approve for danger', () => {
+  for (const state of STATES) {
+    for (const cause of state === 'offline' ? CAUSES : ['token']) {
+      for (const risk of RISKS) {
+        const ctx = { ...confirmCtx, cause, risk }
+        for (const control of barModel({ ...ctx, state }).controls) {
+          const run = () => transition(state, control, ctx)
+          const label = `${state}:${control} (${cause}, ${risk})`
+          if (state === 'proposed' && control === 'approve' && risk === 'danger') {
+            assert.throws(run, /danger requires confirm_code, not approve/, label)
+          } else {
+            assert.doesNotThrow(run, label)
+          }
+        }
+      }
+    }
+  }
+})
+t('transition: expand leaves the proposal state unchanged', () => {
+  assert.strictEqual(transition('proposed', 'expand'), 'proposed')
+})
+t('transition: confirm_code goes straight to executing even with auto-run on', () => {
+  assert.strictEqual(transition('proposed', 'confirm_code', confirmCtx), 'executing')
+})
+t('transition: confirm_code rejects mismatched codes, non-danger risk, and dirty prompts', () => {
+  assert.throws(() => transition('proposed', 'confirm_code', { ...confirmCtx, code: '0000' }), /confirm_code mismatch/)
+  assert.throws(() => transition('proposed', 'confirm_code', { ...confirmCtx, risk: 'write' }), /confirm_code requires risk=danger/)
+  assert.throws(() => transition('proposed', 'confirm_code', { ...confirmCtx, gate: { gate: 'prompt_dirty' } }), /confirm_code requires a clean prompt/)
+})
+t('transition: confirm_code requires a nonempty expected code from the proposal', () => {
+  for (const proposal of [undefined, {}, { confirm_expected: '' }, { confirm_expected: 4218 }]) {
+    assert.throws(() => transition('proposed', 'confirm_code', { ...confirmCtx, proposal }), /proposal has no confirm_expected/)
+  }
 })
 t('transition: run_now is idempotent and never returns to counting', () => {
   const s1 = transition('counting', 'run_now', {})

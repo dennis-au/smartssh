@@ -48,16 +48,30 @@ export function stateFor (event) {
   }
 }
 
-/** Only the auto-run path may enter `counting`; a human approval goes straight to executing. */
+/** Only read-tier auto-run may enter `counting`. */
 export function mayEnter (state, ctx = {}) {
   if (!STATES.includes(state)) throw new Error(`unknown state: ${state}`)
   if (state !== 'counting') return true
-  return ctx.autoRun === 'on' && ctx.gate?.gate === GATE.CLEAN
+  return ctx.autoRun === 'on' && ctx.gate?.gate === GATE.CLEAN && ctx.risk === 'read'
 }
 
 const NEXT = {
-  'proposed:approve': ctx => (ctx.autoRun === 'on' && ctx.gate?.gate === GATE.CLEAN ? 'counting' : 'executing'),
+  'proposed:approve': ctx => {
+    if (ctx?.risk === 'danger') throw new Error('danger requires confirm_code, not approve')
+    return (ctx?.autoRun === 'on' && ctx?.gate?.gate === GATE.CLEAN && ctx?.risk === 'read') ? 'counting' : 'executing'
+  },
   'proposed:reject': () => 'rejected',
+  // Expanding is a view action; it leaves the proposal state unchanged.
+  'proposed:expand': () => 'proposed',
+  // A danger confirmation bypasses the countdown and fails loudly on invalid input.
+  'proposed:confirm_code': ctx => {
+    if (ctx?.risk !== 'danger') throw new Error('confirm_code requires risk=danger')
+    if (ctx?.gate?.gate !== 'clean') throw new Error('confirm_code requires a clean prompt')
+    const expected = ctx?.proposal?.confirm_expected
+    if (typeof expected !== 'string' || expected.length === 0) throw new Error('proposal has no confirm_expected')
+    if (typeof ctx?.code !== 'string' || ctx.code !== expected) throw new Error('confirm_code mismatch')
+    return 'executing'
+  },
   // idempotent: running now only zeroes the countdown, it is not a second approval
   'counting:run_now': () => 'executing',
   'counting:cancel': () => 'proposed',
