@@ -54,7 +54,7 @@ t('transition: plain approve refuses danger and counts down only for clean read 
   assert.strictEqual(transition('proposed', 'approve', { ...autoCtx, risk: 'write' }), 'executing')
   assert.strictEqual(transition('proposed', 'approve', { ...autoCtx, risk: 'read', gate: { gate: 'prompt_dirty' } }), 'executing')
 })
-t('every rendered control has a working transition except plain approve for danger', () => {
+t('rendered controls have working transitions except for tier-guarded actions', () => {
   for (const state of STATES) {
     for (const cause of state === 'offline' ? CAUSES : ['token']) {
       for (const risk of RISKS) {
@@ -64,6 +64,8 @@ t('every rendered control has a working transition except plain approve for dang
           const label = `${state}:${control} (${cause}, ${risk})`
           if (state === 'proposed' && control === 'approve' && risk === 'danger') {
             assert.throws(run, /danger requires confirm_code, not approve/, label)
+          } else if (state === 'counting' && control === 'run_now' && risk !== 'read') {
+            assert.throws(run, /read-tier only/, label)
           } else {
             assert.doesNotThrow(run, label)
           }
@@ -88,8 +90,18 @@ t('transition: confirm_code requires a nonempty expected code from the proposal'
     assert.throws(() => transition('proposed', 'confirm_code', { ...confirmCtx, proposal }), /proposal has no confirm_expected/)
   }
 })
+t('transition: confirm_code rejects a dead proposal even with the correct code', () => {
+  const proposal = { ...confirmCtx.proposal, attempts: 3 }
+  assert.throws(() => transition('proposed', 'confirm_code', { ...confirmCtx, proposal }), /proposal is dead/)
+})
+t('transition: a mismatch at two server attempts does not consume another attempt locally', () => {
+  const proposal = Object.freeze({ ...confirmCtx.proposal, attempts: 2 })
+  assert.throws(() => transition('proposed', 'confirm_code', { ...confirmCtx, proposal, code: '0000' }), /confirm_code mismatch/)
+  assert.strictEqual(transition('proposed', 'confirm_code', { ...confirmCtx, proposal }), 'executing')
+})
 t('transition: run_now is idempotent and never returns to counting', () => {
-  const s1 = transition('counting', 'run_now', {})
+  assert.throws(() => transition('counting', 'run_now', { risk: 'write' }), /read-tier only/)
+  const s1 = transition('counting', 'run_now', { risk: 'read' })
   assert.strictEqual(s1, 'executing')
   // a second press cannot re-enter the countdown, it is simply not an action of `executing`
   assert.throws(() => transition(s1, 'run_now', {}), /not available/)

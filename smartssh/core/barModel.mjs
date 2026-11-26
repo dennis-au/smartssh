@@ -67,13 +67,18 @@ const NEXT = {
   'proposed:confirm_code': ctx => {
     if (ctx?.risk !== 'danger') throw new Error('confirm_code requires risk=danger')
     if (ctx?.gate?.gate !== 'clean') throw new Error('confirm_code requires a clean prompt')
+    const attempts = ctx?.proposal?.attempts
+    if (Number.isInteger(attempts) && attempts >= 3) throw new Error('proposal is dead: too many attempts')
     const expected = ctx?.proposal?.confirm_expected
     if (typeof expected !== 'string' || expected.length === 0) throw new Error('proposal has no confirm_expected')
     if (typeof ctx?.code !== 'string' || ctx.code !== expected) throw new Error('confirm_code mismatch')
     return 'executing'
   },
   // idempotent: running now only zeroes the countdown, it is not a second approval
-  'counting:run_now': () => 'executing',
+  'counting:run_now': ctx => {
+    if (ctx?.risk !== 'read') throw new Error('run_now is read-tier only')
+    return 'executing'
+  },
   'counting:cancel': () => 'proposed',
   'settling:cancel': () => 'proposed',
   'executing:ctrl_c': () => 'aborted',

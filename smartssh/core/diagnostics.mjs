@@ -1,9 +1,10 @@
-// "Copy diagnostics" — designer v16 SPEC OF RECORD. Ten codes, or null. No third state.
+// "Copy diagnostics" — designer v16, extended in v39. Eleven codes, or null.
 export const TRUST = Object.freeze(['off', 'watch', 'propose', 'readonly_auto'])
 export const GATE = Object.freeze(['clean', 'prompt_dirty', 'settling', 'alt_screen', 'continuation'])
 export const ERROR_CODES = Object.freeze([
   'token_invalid', 'stale_approval', 'proposal_dead', 'truncation_refused', 'rate_limited',
   'server_error', 'dispatch_failed', 'dispatch_timeout', 'session_replaced', 'transport_unknown',
+  'confirm_mismatch',
 ])
 export const DIAG_KEYS = ['version', 'sha256', 'trust', 'gate', 'errors']
 export const MAX_BYTES = 2048
@@ -11,7 +12,7 @@ export const TRANSPORT_TIMEOUT_EVENT = 'transport_timeout'
 const VERSION_RE = /^\d+\.\d+\.\d+ · sms\.\d+ · [0-9a-f]{7,40}$/
 const STATUS_MAP = {
   401: 'token_invalid', 403: 'token_invalid', 409: 'stale_approval', 410: 'proposal_dead',
-  413: 'truncation_refused', 429: 'rate_limited',
+  413: 'truncation_refused', 422: 'confirm_mismatch', 429: 'rate_limited',
 }
 
 // producer -> code, exactly as the spec's two right-hand columns

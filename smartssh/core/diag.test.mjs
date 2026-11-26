@@ -5,12 +5,13 @@ const H = 'a'.repeat(64); const V = '1.0.238 · sms.42 · 54869e1'
 const o = (x) => JSON.parse(buildDiagnostics(x))
 
 // ---- SPEC OF RECORD: producer -> code, every row ----
-t('SPEC: all 14 producer rows map exactly', () => {
+t('SPEC: all 15 producer rows map exactly', () => {
   const rows = [
     [{ status: 401 }, 'token_invalid'],
     [{ status: 409 }, 'stale_approval'],
     [{ status: 410 }, 'proposal_dead'],
     [{ status: 413 }, 'truncation_refused'],
+    [{ status: 422 }, 'confirm_mismatch'],
     [{ status: 429 }, 'rate_limited'],
     [{ status: 500 }, 'server_error'],
     [{ status: 503 }, 'server_error'],
@@ -24,10 +25,14 @@ t('SPEC: all 14 producer rows map exactly', () => {
   ]
   for (const [input, want] of rows) assert.strictEqual(toErrorCode(input), want, JSON.stringify(input))
 })
-t('SPEC: exactly ten codes, nothing outside the set', () => {
-  assert.strictEqual(ERROR_CODES.length, 10)
+t('SPEC: exactly eleven codes, nothing outside the set', () => {
+  assert.deepStrictEqual(ERROR_CODES, [
+    'token_invalid', 'stale_approval', 'proposal_dead', 'truncation_refused', 'rate_limited',
+    'server_error', 'dispatch_failed', 'dispatch_timeout', 'session_replaced', 'transport_unknown',
+    'confirm_mismatch',
+  ])
   for (const c of ERROR_CODES) assert.strictEqual(toErrorCode(c), c)
-  for (const bad of ['exit_unknown', 'idempotent_replay', 'aborted:dispatch_timeout', 'exit_code:null', 'nope']) {
+  for (const bad of ['exit_unknown', 'idempotent_replay', 'aborted:dispatch_timeout', 'exit_code:null', 'nope', 'mismatch']) {
     assert.strictEqual(toErrorCode(bad), null, bad)
   }
 })
@@ -35,7 +40,7 @@ t('SPEC: 5xx and 429 are different codes (wait vs look at relay)', () => {
   assert.notStrictEqual(toErrorCode({ status: 500 }), toErrorCode({ status: 429 }))
 })
 t('SPEC: 4xx not in the table is not an error code', () => {
-  for (const s of [400, 404, 405, 422]) assert.strictEqual(toErrorCode({ status: s }), null, String(s))
+  for (const s of [400, 404, 405]) assert.strictEqual(toErrorCode({ status: s }), null, String(s))
 })
 
 t('SPEC: both legacy transport timeout shapes are rejected', () => {
