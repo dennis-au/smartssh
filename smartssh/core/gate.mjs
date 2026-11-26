@@ -26,7 +26,12 @@ export const GATE = {
  */
 export function isAtPrompt (s) {
   const { line = '', cursorX = 0, token = '', tokenTrusted = false,
-    altScreen = false, selection = false, viewportY = 0, baseY = 0, tailIsHint = false } = s
+    altScreen = false, selection = false, viewportY = 0, baseY = 0, tailIsHint = false,
+    // Column-accurate form (CJK-safe): `cursorX` counts CELLS, while a JS string index counts
+    // UTF-16 units, so `line.slice(0, cursorX)` silently drifts when wide characters precede the
+    // cursor. When the caller can read cells it passes prefix/tail directly and `line` is unused.
+    prefix: givenPrefix, tail: givenTail } = s
+  const hasCells = typeof givenPrefix === 'string'
 
   if (altScreen) return { gate: GATE.ALT, reason: 'alt_screen' }
   if (selection) return { gate: GATE.DIRTY, reason: 'selection' }
@@ -36,8 +41,8 @@ export function isAtPrompt (s) {
   }
   if (!tokenTrusted) return { gate: GATE.DIRTY, reason: 'token_untrusted' }
 
-  const prefix = line.slice(0, cursorX)
-  const tail = line.slice(cursorX)
+  const prefix = hasCells ? givenPrefix : line.slice(0, cursorX)
+  const tail = hasCells ? (typeof givenTail === 'string' ? givenTail : '') : line.slice(cursorX)
 
   if (!prefix.endsWith(token)) return { gate: GATE.DIRTY, reason: 'prompt_dirty' }
 
