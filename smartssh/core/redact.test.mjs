@@ -92,6 +92,44 @@ test('null and undefined become empty text', () => {
   for (const input of [null, undefined]) assert.deepEqual(redact(input), { text: '', masks: [] })
 })
 
+test('assignment labels are case-insensitive and allow bare, dashed, and camel-case suffixes', () => {
+  const value = 'abcdefgh12345678'
+  for (const label of ['token', 'api_key', 'api-key', 'secret', 'client_secret', 'client-secret', 'passwd', 'pwd',
+    'db_password', 'mySecretKey', 'AWS_SECRET_ACCESS_KEY', 'TOKEN', 'API_KEY', 'apikey']) {
+    const input = `${label}=${value}`
+    const result = redact(input)
+    assert.equal(result.text, `${label}=***`, label)
+    assert.deepEqual(result.masks.map(m => m.rule), ['env_key'], label)
+    assert.equal(singleMaskSource(input, result), value, label)
+  }
+})
+
+test('an assignment label split by an invisible still masks its value', () => {
+  const input = '🔐 to\u200Bken=fixture-token'
+  const result = redact(input)
+  assert.equal(result.text, '🔐 to\u200Bken=***')
+  assertMaskTokens(input, result, ['fixture-token'])
+})
+
+test('a leading invisible in a bearer value belongs to the mask', () => {
+  const input = 'Authorization: Bearer \u200Bfixture-bearer'
+  const result = redact(input)
+  assert.equal(result.text, 'Authorization: Bearer ***')
+  assert.equal(singleMaskSource(input, result), '\u200Bfixture-bearer')
+  assert.equal(result.masks[0].invisibleInside, 1)
+})
+
+test('empty assignments and plural suffixes stay unchanged, but short nonempty values mask', () => {
+  for (const text of ['token=', 'token=""', 'sorted_keys=abc']) {
+    assert.deepEqual(redact(text), { text, masks: [] })
+  }
+  for (const value of ['x', 'abc']) {
+    const result = redact(`token =${value}`)
+    assert.equal(result.text, 'token =***')
+    assert.deepEqual(result.masks.map(m => m.rule), ['env_key'])
+  }
+})
+
 test('environment suffixes and known prefixes are all recognized', () => {
   const env = redact("APP_KEY=one APP_TOKEN=two APP_SECRET='three' APP_PASSWORD=four")
   assert.equal(env.text, "APP_KEY=*** APP_TOKEN=*** APP_SECRET='***' APP_PASSWORD=***")

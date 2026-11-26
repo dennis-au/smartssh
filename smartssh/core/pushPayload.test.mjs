@@ -1,5 +1,6 @@
 // contract: v53
 import assert from 'node:assert/strict'
+import { previewDisplay } from './preview.mjs'
 import { buildContextPush, maskBufferLine, MAX_LINES, TRIGGERS } from './pushPayload.mjs'
 
 const at = '2025-01-02T03:04:05.000Z'
@@ -72,6 +73,16 @@ const tests = [
     assert.deepEqual(payload.text.split('\n'), input.lines.slice(50))
     assert.equal(input.lines.length, 250)
   }],
+  ['an uncovered secret only in the 50 dropped lines does not block a push', () => {
+    const input = largeSample()
+    input.lines[49] = `log: ${pem[0]}` // No closing delimiter, so this would fail the audit if sent.
+    const payload = buildContextPush(input)
+    assert.equal(payload.truncated_lines, 50)
+    assert.equal(payload.redacted_segments, 0)
+    assert.deepEqual(payload.text.split('\n'), input.lines.slice(50))
+    input.lines[50] = input.lines[49]
+    assert.throws(() => buildContextPush(input), { code: 'AUDIT_UNCOVERED' })
+  }],
   ['ignores legacy text even when it has 999 lines', () => {
     const lines = ['first', 'second', 'third']
     const push = buildContextPush({ ...withLines(lines), text: Array(999).fill('bogus').join('\n') })
@@ -130,6 +141,13 @@ const tests = [
     const payload = buildContextPush(withLines(['a', `Authorization: Bearer ${canary}`, 'c']))
     assert.equal(payload.text, 'a\nAuthorization: Bearer ***\nc')
     assert.ok(!JSON.stringify(payload).includes(canary))
+  }],
+  ['a leading invisible in a bearer value builds with deception severity', () => {
+    const payload = buildContextPush(withLines(['Authorization: Bearer \u200Bfixture-bearer']))
+    assert.equal(payload.text, 'Authorization: Bearer ***')
+    assert.equal(payload.masks[0].invisibleInside, 1)
+    assert.equal(payload.invisible_escalation, 1)
+    assert.equal(payload.severity, 'deception')
   }],
   ['serialized payload hides the split token and its mask escalates severity', () => {
     const suffix = 'CANARY_split_fixture_7890'
@@ -213,14 +231,48 @@ const tests = [
   ['empty host throws', () => {
     assert.throws(() => buildContextPush({ ...sample(), host: '' }), /host/)
   }],
+  ['lowercase token assignments are masked before the payload is serialized', () => {
+    const canary = 'abcdefgh12345678'
+    const payload = buildContextPush(withLines([`token=${canary}`]))
+    assert.equal(payload.text, 'token=***')
+    assert.deepEqual(payload.masks.map(({ rule }) => rule), ['env_key'])
+    assert.ok(!JSON.stringify(payload).includes(canary))
+  }],
   ['the audit blocks a missed credential without putting it in the error message', () => {
-    const canary = 'fixtureCanary12345678'
-    assert.throws(() => buildContextPush(withLines([`TOKEN=${canary}`])), error => {
+    // The redactor recognizes uppercase AKIA; the independent audit also catches lowercase.
+    const canary = 'akiafixture12345678'
+    assert.throws(() => buildContextPush(withLines([canary])), error => {
       assert.equal(error.code, 'AUDIT_UNCOVERED')
       assert.equal(error.message, 'audit found an unmasked secret-like span')
-      assert.ok(!error.message.includes('fixtureCanary'))
-      assert.equal(error.findings.length, 1)
+      assert.ok(!error.message.includes(canary))
+      assert.deepEqual(error.findings.map(({ kind }) => kind), ['akia'])
       return true
+    })
+  }],
+  ['unlabeled hex, UUID, and base64 are detail-only signals', () => {
+    const hex = '0123456789abcdef0123456789abcdef'
+    const base64 = 'YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY='
+    const uuid = '01234567-89ab-cdef-0123-456789abcdef'
+    for (const token of [hex, uuid, base64, `${hex.slice(0, 16)}\u200B${hex.slice(16)}`]) {
+      const payload = buildContextPush(withLines([token]))
+      assert.equal(payload.text, token)
+      assert.equal(payload.high_entropy_count, 1)
+      assert.deepEqual(previewDisplay(payload).warnings.filter(({ kind }) => kind === 'banner'), [])
+    }
+    const payload = buildContextPush(withLines([hex]))
+    assert.equal(payload.severity, 'none')
+    assert.deepEqual(previewDisplay(payload).warnings, [{ kind: 'detail', text: '另見 1 個疑似高熵字串' }])
+    assert.equal(buildContextPush(withLines([`token=${hex}`, `AKIA${hex}`])).high_entropy_count, 0)
+    assert.throws(() => buildContextPush({ ...withLines([`token=${hex}`]), enabledRules: [] }), { code: 'AUDIT_UNCOVERED' })
+  }],
+  ['coverage disagreement wins over an uncovered credential', () => {
+    // A bare Bearer label does not trigger the redactor's Authorization rule.
+    // The prefix rule masks the visible value but not the leading invisible.
+    const text = 'Bearer \u200Bghp_01234567'
+    assert.throws(() => buildContextPush(withLines([text, pem[0]])), {
+      code: 'AUDIT_INCONSISTENT',
+      message: 'audit and redactor disagree about coverage',
+      findings: [{ kind: 'bearer', index: 'Bearer '.length, end: text.length, covered: false }],
     })
   }],
   ['disabling a rule does not bypass the audit', () => {
@@ -246,7 +298,7 @@ const tests = [
   }],
   ['all counters are present even when zero', () => {
     const payload = buildContextPush(withLines(['echo keep']))
-    for (const key of ['truncated_lines', 'redacted_segments', 'invisible_escalation']) {
+    for (const key of ['truncated_lines', 'redacted_segments', 'invisible_escalation', 'high_entropy_count']) {
       assert.ok(Object.hasOwn(payload, key))
       assert.equal(payload[key], 0)
     }

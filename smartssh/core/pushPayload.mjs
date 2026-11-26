@@ -1,5 +1,5 @@
 // contract: v53
-import { auditUnmasked } from './audit.mjs'
+import { auditCoverage } from './audit.mjs'
 import { payloadSeverity } from './preview.mjs'
 import { maskSrcLines, redact } from './redact.mjs'
 
@@ -46,7 +46,9 @@ export function buildContextPush (input) {
   masks.sort((a, b) => a.start - b.start)
 
   const masksBySrcSpan = masks.map(({ srcSpan }) => ({ srcStart: srcSpan.start, srcEnd: srcSpan.end }))
-  const uncovered = auditUnmasked(windowText, masksBySrcSpan)
+  const { inconsistent, uncovered, highEntropyCount } = auditCoverage(windowText, masksBySrcSpan)
+  if (inconsistent.length) throw Object.assign(new Error('audit and redactor disagree about coverage'),
+    { code: 'AUDIT_INCONSISTENT', findings: inconsistent })
   if (uncovered.length) throw Object.assign(new Error('audit found an unmasked secret-like span'),
     { code: 'AUDIT_UNCOVERED', findings: uncovered })
 
@@ -54,7 +56,7 @@ export function buildContextPush (input) {
   const severity = payloadSeverity({ text, invisible_escalation })
   return {
     trigger, tab_id, host, range, line_count: lines.length, truncated_lines,
-    redacted_segments: masks.length, invisible_escalation, severity, text, masks,
+    redacted_segments: masks.length, invisible_escalation, high_entropy_count: highEntropyCount, severity, text, masks,
   }
 }
 

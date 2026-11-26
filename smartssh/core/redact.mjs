@@ -23,9 +23,9 @@ export function stripInvisible (text) {
   return { stripped, map }
 }
 // Capture the replacement span separately from context. CLI quoting uses alternate captures.
-const ENV_ASSIGNMENT = /[A-Za-z_]\w*_(?:KEY|TOKEN|SECRET|PASSWORD)=/
+export const ASSIGNMENT_PATTERN = /(?<![\w-])(?:[A-Za-z_][\w-]*)?(?:key|token|secret|password|passwd|pwd)[ \t]*=[ \t]*["']?([^\s"']+)/dgi
 const PATTERNS = {
-  env_key: new RegExp(`\\b${ENV_ASSIGNMENT.source}["']?([^\\s"']+)`, 'dg'),
+  env_key: ASSIGNMENT_PATTERN,
   bearer: /\bAuthorization:[ \t]*Bearer[ \t]+([A-Za-z0-9._~+/-]+=*)/dgi,
   url_cred: /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/([^\s:/@"'<>]+:[^\s/@"'<>]+)@(?=[A-Za-z0-9\[])/dg,
   cli_password: /(?<![\w-])--password(?:=|[ \t]+)(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s"']+))/dg,
@@ -61,6 +61,14 @@ export function redact (text, opts = {}) {
   const boundaryDomain = input.replace(INVISIBLES, ' ')
   const spans = []
   const seenSpans = new Set()
+  const addSpan = (rule, start, end, matchedToken) => {
+    if (start === end || matchedToken === MASK) return
+    const key = `${start}:${end}`
+    // Exact duplicates are the same secret: keep the first rule, never union spans.
+    if (seenSpans.has(key)) return
+    seenSpans.add(key)
+    spans.push({ rule, start, end, matchedToken })
+  }
   for (const [rule, pattern] of Object.entries(PATTERNS)) {
     if (!enabled.has(rule)) continue
     const inBoundaryDomain = BOUNDARY_RULES.has(rule)
@@ -68,15 +76,20 @@ export function redact (text, opts = {}) {
     for (const match of subject.matchAll(pattern)) {
       const capture = rule === 'password_prompt' ? 2 : (match[1] != null ? 1 : (match[2] != null ? 2 : 3))
       const [matchStart, matchEnd] = match.indices[capture]
-      const matchedToken = match[capture]
-      if (matchStart === matchEnd || matchedToken === MASK) continue
       const start = inBoundaryDomain ? matchStart : tokenToSource[matchStart]
       const end = inBoundaryDomain ? matchEnd : tokenToSource[matchEnd - 1] + 1
-      const key = `${start}:${end}`
-      // Exact duplicates are the same secret: keep the first rule, never union spans.
-      if (seenSpans.has(key)) continue
-      seenSpans.add(key)
-      spans.push({ rule, start, end, matchedToken })
+      addSpan(rule, start, end, match[capture])
+    }
+    if (rule === 'env_key') {
+      // Recover labels split by invisibles, while still treating invisibles as
+      // value boundaries (they may separate consecutive assignments).
+      const boundaryValue = /[^\s"']+/y
+      for (const match of tokenDomain.matchAll(pattern)) {
+        const start = tokenToSource[match.indices[1][0]]
+        boundaryValue.lastIndex = start
+        const value = boundaryValue.exec(boundaryDomain)?.[0]
+        if (value) addSpan(rule, start, start + value.length, value)
+      }
     }
   }
 
@@ -88,6 +101,14 @@ export function redact (text, opts = {}) {
     furthestEnd = span.end
     return true
   })
+
+  // A raw match may begin at an invisible just before a labeled value.
+  for (let i = 0; i < kept.length; i++) {
+    const span = kept[i]
+    if (span.rule !== 'bearer' && span.rule !== 'env_key' && span.rule !== 'password_prompt') continue
+    const limit = kept[i - 1]?.end ?? 0
+    while (span.start > limit && isInvisible(input[span.start - 1])) span.start--
+  }
 
   for (let i = 0; i < kept.length; i++) {
     const span = kept[i]

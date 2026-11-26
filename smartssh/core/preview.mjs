@@ -71,6 +71,9 @@ export function previewDisplay (payload, { showInvisibles = false } = {}) {
     warnings.push({ kind: 'banner', text: message })
   }
   if (suspicious) warnings.push({ kind: 'detail', text: `含有 ${suspicious} 個可疑的零寬字元` })
+  if (payload.high_entropy_count > 0) {
+    warnings.push({ kind: 'detail', text: `另見 ${payload.high_entropy_count} 個疑似高熵字串` })
+  }
   const display = showInvisibles
     ? text.replace(INVISIBLES, character => `⟦${codePointLabel(character)}⟧`)
     : text
