@@ -1,0 +1,42 @@
+name: smartssh-win
+on:
+  push:
+    branches: [smartssh]
+  workflow_dispatch:
+jobs:
+  portable:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+      - name: Install deps
+        run: |
+          npm i -g yarn
+          cd app
+          yarn --network-timeout 1000000
+          cd ..
+          yarn --network-timeout 1000000
+      - name: Webpack build
+        run: yarn run build
+      - name: Portable exe
+        run: node scripts/build-smartssh.mjs
+      - name: Hash + version
+        run: |
+          Get-ChildItem dist -Filter *portable*.exe | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+            "$($_.Name)  $h" | Out-File -Append artifact-sha256.txt
+            Write-Host $_.Name $h
+          }
+          Get-Content artifact-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smartssh-portable
+          path: |
+            dist/*portable*.exe
+            artifact-sha256.txt
+          retention-days: 90
