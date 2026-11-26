@@ -17,6 +17,7 @@ import { SearchPanelComponent } from './components/searchPanel.component'
 import { StreamProcessingSettingsComponent } from './components/streamProcessingSettings.component'
 import { LoginScriptsSettingsComponent } from './components/loginScriptsSettings.component'
 import { TerminalToolbarComponent } from './components/terminalToolbar.component'
+import { SmartSSHBarComponent } from './components/smartsshBar.component'
 import { ColorSchemeSelectorComponent } from './components/colorSchemeSelector.component'
 import { InputProcessingSettingsComponent } from './components/inputProcessingSettings.component'
 import { ColorSchemeSettingsForModeComponent } from './components/colorSchemeSettingsForMode.component'
@@ -73,6 +74,8 @@ import { DefaultColorSchemes } from './colorSchemes'
         ColorSchemeSettingsTabComponent,
         TerminalSettingsTabComponent,
         SearchPanelComponent,
+        SmartSSHBarComponent,
+        SmartSSHBarComponent,
         StreamProcessingSettingsComponent,
         LoginScriptsSettingsComponent,
         TerminalToolbarComponent,

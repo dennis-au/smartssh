@@ -54,6 +54,19 @@ t('transition: run_now is idempotent and never returns to counting', () => {
   // a second press cannot re-enter the countdown, it is simply not an action of `executing`
   assert.throws(() => transition(s1, 'run_now', {}), /not available/)
 })
+t('v30 cause split holds in TRANSITION, not only in render', () => {
+  assert.throws(() => transition('offline', 'retry', { cause: 'token' }), /not a remedy for cause=token/)
+  assert.throws(() => transition('offline', 'reset_token', { cause: 'network' }), /not a remedy for cause=network/)
+  assert.strictEqual(transition('offline', 'retry', { cause: 'network' }), 'offline')
+  assert.strictEqual(transition('offline', 'reset_token', { cause: 'token' }), 'offline')
+})
+t('offline transition without a cause throws for every action', () => {
+  for (const a of ['retry', 'reset_token', 'copy_diag', 'dismiss']) {
+    assert.throws(() => transition('offline', a, {}), /requires cause/, a)
+  }
+  assert.strictEqual(transition('offline', 'copy_diag', { cause: 'token' }), 'offline')
+  assert.strictEqual(transition('offline', 'copy_diag', { cause: 'network' }), 'offline')
+})
 t('transition: illegal actions throw instead of silently doing nothing', () => {
   assert.throws(() => transition('rejected', 'approve', {}), /not available/)
   assert.throws(() => transition('offline', 'approve', {}), /not available/)

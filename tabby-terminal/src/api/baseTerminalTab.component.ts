@@ -73,6 +73,9 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
 
     @Input() zoom = 0
 
+    /** SmartSSH approval bar. null means "no proposal", so the row is not rendered at all. */
+    smartsshProposal: any = null
+
     @Input() showSearchPanel = false
 
     /** @hidden */

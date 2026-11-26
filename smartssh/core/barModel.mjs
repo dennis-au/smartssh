@@ -70,10 +70,17 @@ const NEXT = {
   'aborted:ask_again': () => 'hidden',
   'expired:dismiss': () => 'hidden',
   'expired:ask_again': () => 'hidden',
-  'offline:reset_token': () => 'offline',
-  'offline:retry': () => 'offline',
-  'offline:copy_diag': () => 'offline',
-  'offline:dismiss': () => 'hidden',
+  // v30 is a TRANSITION contract, not just a render contract: the keyboard path and the
+  // reconnect handler go through here, so a remedy must be refused for the wrong cause too.
+  'offline:reset_token': ctx => { requireCause(ctx, 'token', 'reset_token'); return 'offline' },
+  'offline:retry': ctx => { requireCause(ctx, 'network', 'retry'); return 'offline' },
+  'offline:copy_diag': ctx => { requireCause(ctx); return 'offline' },
+  'offline:dismiss': ctx => { requireCause(ctx); return 'hidden' },
+}
+
+function requireCause (ctx, expected, action) {
+  if (!CAUSES.includes(ctx?.cause)) throw new Error(`offline action ${action ?? ''} requires cause token|network`.trim())
+  if (expected && ctx.cause !== expected) throw new Error(`${action} is not a remedy for cause=${ctx.cause}`)
 }
 
 export function transition (state, action, ctx = {}) {

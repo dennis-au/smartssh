@@ -1,0 +1,109 @@
+// SmartSSH bar — third row of the pane, in normal flow.
+// Rules from designer v19: never sticky, never an overlay (an overlay hides the prompt you are
+// about to approve); animate height only (a transform breaks xterm's fit + scroll restore).
+// Colours come from Tabby's own theme variables so light/dark/third-party themes follow for free.
+
+:host {
+    display: block;
+    flex: 0 0 auto;
+    min-height: 0;
+    --sms-gap: 8px;
+    --sms-pad: 12px;
+    --sms-bar-min: 92px;
+    --sms-bar-max: 148px;
+    --sms-radius: 8px;
+}
+
+.smartssh-bar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sms-gap);
+    box-sizing: border-box;
+    margin: 0 calc(max(0px, 30px * var(--spaciness, 1) - 15px));
+    padding: var(--sms-pad);
+    min-height: var(--sms-bar-min);
+    max-height: var(--sms-bar-max);
+    overflow: hidden;
+    border-radius: var(--sms-radius);
+    background: var(--theme-bg-more-2);
+    color: var(--theme-fg);
+    border-inline-start: 3px solid var(--theme-accent);
+    transition: height 200ms ease-out;
+}
+
+.smartssh-bar[data-risk='write'] { border-inline-start-color: var(--theme-accent); }
+.smartssh-bar[data-risk='danger'] { border-inline-start-color: var(--theme-red, #d9534f); }
+.smartssh-bar[data-state='offline'][data-cause='token'] { border-inline-start-color: var(--theme-red, #d9534f); }
+.smartssh-bar[data-state='offline'][data-cause='network'] { border-inline-start-color: var(--theme-yellow, #e0a800); }
+.smartssh-bar[data-viewport='too_narrow'] { display: none; }
+
+.bar-h {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sms-gap);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.chip {
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid var(--theme-fg-more-2);
+    font-size: 11px;
+}
+
+.keys { margin-inline-start: auto; opacity: .7; }
+
+.cmd {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 44px;
+    padding: 6px 8px;
+    text-align: start;
+    font-family: var(--theme-font-mono, monospace);
+    font-size: 12.5px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--theme-fg-more-2);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.cmd:focus-visible,
+.btn:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 2px; }
+
+.smartssh-bar[data-risk='danger'] .cmd {
+    display: block;
+    -webkit-line-clamp: unset;
+    max-height: 132px;
+    overflow: auto;
+}
+
+.why { margin: 0; font-size: 11px; opacity: .8; }
+
+.acts { display: flex; gap: var(--sms-gap); flex-wrap: wrap; }
+
+.btn {
+    font-size: 12.5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--theme-fg-more-2);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.btn.primary { border-color: var(--theme-accent); color: var(--theme-accent); }
+.btn.danger { border-color: var(--theme-red, #d9534f); color: var(--theme-red, #d9534f); }
+.btn.warn { border-color: var(--theme-yellow, #e0a800); }
+.btn.link { border: none; text-decoration: underline; }
+
+kbd { font-size: 10px; opacity: .75; margin-inline-start: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .smartssh-bar { transition: none; }
+}

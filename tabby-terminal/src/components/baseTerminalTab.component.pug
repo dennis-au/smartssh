@@ -9,6 +9,8 @@ search-panel(
     (close)='showSearchPanel = false; frontend.cancelSearch()'
 )
 
+smartssh-bar(*ngIf='smartsshProposal', [model]='smartsshProposal')
+
 button.btn.btn-sm.btn-link.toolbar-pin-button(
     *ngIf='enableToolbar && !pinToolbar',
     (click)='togglePinToolbar()',
