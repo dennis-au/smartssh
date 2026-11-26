@@ -1,0 +1,40 @@
+import assert from 'node:assert'
+import { tailIsHintFromCells, tailIsHintFromSnapshot } from './tailhint.mjs'
+const r = []; const t = (n, f) => { try { f(); r.push(['PASS', n]) } catch (e) { r.push(['FAIL', n + ' :: ' + e.message]) } }
+const dim = () => ({ isDim: () => true, isItalic: () => false })
+const ita = () => ({ isDim: () => false, isItalic: () => true })
+const plain = () => ({ isDim: () => false, isItalic: () => false })
+
+t('1. all dim => true', () => assert.strictEqual(tailIsHintFromCells([dim(), dim(), dim()]), true))
+t('2. all italic => true', () => assert.strictEqual(tailIsHintFromCells([ita(), ita()]), true))
+t('3. dim+italic mixed => true', () => assert.strictEqual(tailIsHintFromCells([dim(), ita()]), true))
+t('4. any normal fg => false (some() would pass this)', () => assert.strictEqual(tailIsHintFromCells([dim(), plain(), dim()]), false))
+t('5. a single normal cell => false', () => assert.strictEqual(tailIsHintFromCells([plain()]), false))
+t('6. empty tail => false (no tail is not a hint)', () => {
+  assert.strictEqual(tailIsHintFromCells([]), false)
+  assert.strictEqual(tailIsHintFromCells(null), false)
+})
+t('7. null/undefined entries => false, never throws', () => {
+  assert.strictEqual(tailIsHintFromCells([null]), false)
+  assert.strictEqual(tailIsHintFromCells([undefined]), false)
+  assert.strictEqual(tailIsHintFromCells(undefined), false)
+})
+t('8. plain-object cells ({dim}/{italic}) are accepted too', () => {
+  assert.strictEqual(tailIsHintFromCells([{ dim: true }, { italic: true }]), true)
+  assert.strictEqual(tailIsHintFromCells([{ dim: true }, { dim: false }]), false)
+})
+t('9. snapshot reads cursorX and cells in ONE pass; empty tail => false', () => {
+  const line = ['h', 'i', ' ', '$', ' ', 'g', 'i', 't']
+  const getCell = (col) => (col >= 5 ? dim() : plain())
+  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 5, cols: 8, getCell }), true)
+  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 8, cols: 8, getCell }), false)
+  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 8, cols: 8, getCell }), false)
+})
+t('10. snapshot with no getCell => false (never throw)', () => {
+  assert.strictEqual(tailIsHintFromSnapshot(null), false)
+  assert.strictEqual(tailIsHintFromSnapshot({ cursorX: 0, cols: 4 }), false)
+})
+for (const [s, n] of r) console.log(`${s}  ${n}`)
+const f = r.filter(x => x[0] === 'FAIL').length
+console.log(`\n${r.length - f}/${r.length} passed`)
+process.exit(f ? 1 : 0)
