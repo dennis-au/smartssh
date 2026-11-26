@@ -1,4 +1,9 @@
 import assert from 'node:assert'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parseMetrics, judgeMetrics, summarise, SCHEMA } from './metrics.mjs'
 
 const r = []; const t = (n, f) => { try { f(); r.push(['PASS', n]) } catch (e) { r.push(['FAIL', n + ' :: ' + e.message]) } }
@@ -103,10 +108,30 @@ t('bar.state must be one of the nine v26 values', () => {
     assert.deepStrictEqual(fails(ok, buildInfo), [], st)
   }
 })
-t('missing cases are SKIPPED, not silently passed', () => {
-  const bad = JSON.parse(JSON.stringify(good)); bad.cases = [bad.cases[0]]
-  const res = judge(bad, buildInfo)
-  assert.ok(res.some(x => x.status === 'SKIPPED' && x.name.includes('911x512')))
+const partial = { ...good, cases: [good.cases[0]] }
+t('each missing required case is a FAIL', () => {
+  const res = judge(partial, buildInfo)
+  for (const id of ['911x512', '900-high-split']) {
+    assert.deepStrictEqual(res.find(x => x.name === `case ${id} is present`), {
+      name: `case ${id} is present`,
+      status: 'FAIL',
+      detail: 'required case missing from metrics.json',
+    })
+  }
+  assert.ok(summarise(res).fail > 0)
+})
+t('metrics-check exits 2 for a partial metrics file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'smartssh-metrics-'))
+  try {
+    const path = join(dir, 'partial.json')
+    writeFileSync(path, JSON.stringify(partial))
+    const checker = fileURLToPath(new URL('./metrics-check.mjs', import.meta.url))
+    const run = spawnSync(process.execPath, [checker, '--metrics', path], { encoding: 'utf8' })
+    if (run.error) throw run.error
+    assert.strictEqual(run.status, 2, run.stderr || run.stdout)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 

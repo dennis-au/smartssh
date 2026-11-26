@@ -48,6 +48,9 @@ export function writeMetrics ({ build, cases }) {
     normalized.push(c)
   }
 
+  const missing = CASE_IDS.filter(id => !cases.some(c => c && c.case === id))
+  if (missing.length) throw new Error(`missing required cases: ${missing.join(', ')}`)
+
   // Escape any literal U+FEFF in string values without changing their decoded content.
   return JSON.stringify({ schema: SCHEMA, build, cases: normalized }).replace(/\uFEFF/g, '\\uFEFF')
 }

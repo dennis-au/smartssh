@@ -61,9 +61,19 @@ test('three cases round-trip and satisfy the judge', () => {
   assert.deepEqual(judgeMetrics(parsed.metrics, { commit }).filter(r => r.status === 'FAIL'), [])
   writeFileSync('/tmp/w.json', text, 'utf8')
 })
+test('partial writes throw and list every missing case', () => {
+  assert.throws(() => writeMetrics({ build, cases: cases.slice(0, 2) }),
+    { message: 'missing required cases: 900-high-split' })
+  assert.throws(() => writeMetrics({ build, cases: [narrow] }),
+    { message: 'missing required cases: 911x512, 900-high-split' })
+})
+test('a complete write preserves the supplied case order', () => {
+  const reversed = [...cases].reverse()
+  assert.deepEqual(JSON.parse(writeMetrics({ build, cases: reversed })).cases, reversed)
+})
 test('output contains no literal U+FEFF and preserves decoded data', () => {
   const gateReason = '\uFEFFclean'
-  const text = writeMetrics({ build, cases: [{ ...narrow, gateReason }] })
+  const text = writeMetrics({ build, cases: [{ ...narrow, gateReason }, ...cases.slice(1)] })
   assert.ok(!text.includes('\uFEFF'))
   assert.equal(parseMetrics(text).metrics.cases[0].gateReason, gateReason)
 })

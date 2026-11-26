@@ -58,7 +58,7 @@ export function judgeMetrics (m, buildInfo) {
 
   for (const id of CASE_IDS) {
     const c = byName(m, id)
-    if (!c) { skip(`case ${id}`, 'not reported by this build'); continue }
+    if (!c) { add(`case ${id} is present`, false, 'required case missing from metrics.json'); continue }
 
     add(`${id} rows is an integer >= 6`, isRows(c.viewport?.rows) && c.viewport.rows >= 6, `rows=${c.viewport?.rows}`)
     add(`${id} viewport numbers are non-negative`, isNonNeg(c.viewport?.heightPx) && isNonNeg(c.viewport?.cellHeightPx),
