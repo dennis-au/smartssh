@@ -1,9 +1,6 @@
 name: smartssh-win
 on:
-  push:
-    branches: [smartssh]
-    paths-ignore:
-      - 'ci-status/**'
+  # dispatch-only: a push never spends runner minutes. Every exe is produced on purpose.
   workflow_dispatch:
 concurrency:
   group: smartssh-win-${{ github.ref }}
@@ -120,7 +117,6 @@ jobs:
           Get-Content "ci-status/$($env:RUN_NUMBER).json"
       - name: Commit status
         if: always()
-        continue-on-error: true
         shell: bash
         run: |
           git config user.name "github-actions"
