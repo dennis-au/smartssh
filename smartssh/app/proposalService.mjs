@@ -18,7 +18,7 @@
 //  * The emitted model is validated by `barModel()` before it is published, so a model that the
 //    DOM contract would reject can never reach the bar.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { isAtPrompt, GATE } from '../core/gate.mjs'
 import { createSettler } from '../core/settle.mjs'
@@ -26,13 +26,13 @@ import { STATES, stateFor, transition, mayEnter, barModel, elementPolicy } from 
 import { tailIsHintFromSnapshot } from '../core/tailhint.mjs'
 import { writeMetrics } from '../core/metricsWriter.mjs'
 import { CASE_IDS } from '../core/metrics.mjs'
+import { isMeasureEnabled, metricsBaseDir, resolveMetricsPath } from './metricsPath.mjs'
 import { parseBuildInfo, formatVersion } from '../core/buildinfo.mjs'
 
 export const DEFAULT_INTERVAL_MS = 120
 export const DEFAULT_QUIET_MS = 150
 /** A proposal nobody answers stops being actionable; the bar then offers dismiss/ask_again. */
 export const DEFAULT_EXPIRE_MS = 30_000
-export const DEFAULT_METRICS_PATH = 'data/metrics.json'
 export const DEFAULT_BUILDINFO_PATHS = ['extras/smartssh-buildinfo.json', 'data/smartssh-buildinfo.json']
 
 const LIVE_STATES = ['proposed', 'counting', 'executing', 'settling']
@@ -106,8 +106,34 @@ export function buildMeasurement (caseId, reading = {}) {
   }
 }
 
+/**
+ * Where the build identity is looked for, exe first.
+ *
+ * electron-builder copies `extras/` to `<exe dir>\resources\extras` (see electron-builder.yml
+ * `extraResources`), which is exactly where windows-checklist.ps1 reads the identity from. The
+ * cwd-relative dev paths stay last so `yarn start` from a checkout keeps working. A metrics file
+ * with no build.commit is rejected by metrics-check, so this lookup decides PASS vs "invalid".
+ * @param {Record<string, string|undefined>} [env]
+ * @param {string} [execPath]
+ * @returns {string[]}
+ */
+export function buildInfoPaths (env = process.env, execPath = process.execPath) {
+  const out = []
+  let base = null
+  try { base = metricsBaseDir(env, execPath) } catch { /* no exe dir known: dev paths only */ }
+  if (base) {
+    out.push(
+      join(base, 'resources', 'extras', 'smartssh-buildinfo.json'),
+      join(base, 'data', 'smartssh-buildinfo.json'),
+      join(base, 'extras', 'smartssh-buildinfo.json'),
+    )
+  }
+  out.push(...DEFAULT_BUILDINFO_PATHS)
+  return out
+}
+
 /** Read the real build identity (CI/local build writes extras/smartssh-buildinfo.json). */
-export function readBuildInfo (paths = DEFAULT_BUILDINFO_PATHS) {
+export function readBuildInfo (paths = buildInfoPaths()) {
   for (const p of paths) {
     if (!p) continue
     try {
@@ -128,8 +154,8 @@ export function readBuildInfo (paths = DEFAULT_BUILDINFO_PATHS) {
  * @param {number} [options.expireMs]        proposal TTL
  * @param {'on'|'off'} [options.autoRun]     default 'off' — never turned on here
  * @param {'off'|'watch'|'propose'|'readonly_auto'} [options.trust] label used in metrics
- * @param {boolean} [options.metrics]        default: SMARTSSH_METRICS === '1'
- * @param {string} [options.metricsPath]     default 'data/metrics.json'
+ * @param {boolean} [options.metrics]        default: SMARTSSH_MEASURE === '1'
+ * @param {string} [options.metricsPath]     default: resolveMetricsPath() -> <exe dir>/data/metrics.json
  * @param {object} [options.build]           {version, sha256, commit}; default: buildinfo on disk
  * @param {(caseId: string, ctx: object) => object} [options.measurement]  per-case reading
  * @param {(path: string, text: string) => void} [options.writeFile]       injectable for tests
@@ -145,8 +171,10 @@ export function createProposalService (options = {}) {
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, text, 'utf8')
   })
-  const metricsEnabled = options.metrics ?? (process.env.SMARTSSH_METRICS === '1')
-  const metricsPath = options.metricsPath ?? process.env.SMARTSSH_METRICS_PATH ?? DEFAULT_METRICS_PATH
+  const metricsEnabled = options.metrics ?? isMeasureEnabled(process.env)
+  // Resolved lazily: an app run with metrics off never needs an exe path, and a host that has no
+  // process.execPath (renderer without node) must not fail service construction over it.
+  const metricsPath = () => options.metricsPath ?? resolveMetricsPath(process.env)
   const measurementOptions = options.measurementOptions ?? {}
 
   const settler = createSettler({ quietMs: options.quietMs ?? DEFAULT_QUIET_MS })
@@ -466,7 +494,7 @@ export function createProposalService (options = {}) {
 
   function metricsDocument () {
     const build = options.build ?? readBuildInfo()
-    if (!build) throw new Error('UI metrics need build identity: pass build, or write extras/smartssh-buildinfo.json')
+    if (!build) throw new Error('UI metrics need build identity: pass build, or ship resources/extras/smartssh-buildinfo.json next to the exe')
     const last = [...measurements.values()].filter(v => v && v.state).pop()
     const gate = last?.gate ?? lastGate
     const decorate = (measured) => ({
@@ -492,8 +520,9 @@ export function createProposalService (options = {}) {
     if (!metricsEnabled) return null
     if (metricsError) throw metricsError
     const doc = metricsDocument()
-    writeFile(metricsPath, JSON.stringify(doc))
-    return { path: metricsPath, doc }
+    const path = metricsPath()
+    writeFile(path, JSON.stringify(doc))
+    return { path, doc }
   }
 
   // ---------------------------------------------------------------- lifecycle
