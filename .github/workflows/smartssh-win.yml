@@ -13,7 +13,12 @@ concurrency:
 permissions:
   contents: write
 env:
-  SMARTSSH_VERSION: "1.0.238"
+  # The version is NOT set here: a tag push (v*) derives it in the "Resolve version" step below, so
+  # the exe name and the About chip can never disagree with the tag that produced them. This is only
+  # the fallback for a manual run. It stays semver-shaped on purpose ('-dev' pre-release): the build
+  # tools reject a non-semver version, and BASE_RE in smartssh/core/buildinfo.mjs rejects it too, so
+  # such a build shows "dev" in the UI — a dev build, never a fake release number.
+  SMARTSSH_VERSION_FALLBACK: "0.0.0-dev"
 jobs:
   portable:
     runs-on: windows-2022
@@ -25,6 +30,29 @@ jobs:
         with:
           node-version: "22"
           cache: yarn
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          # A manual run has no tag to read; it may name a version, else it gets the dev pre-release
+          # above. (No dispatch input is declared, so in practice this stays empty.)
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          # Picked up by scripts/vars.mjs (exe name via artifactName) and by the buildinfo step
+          # (base field, i.e. the About chip): one derivation, so they cannot disagree.
+          if [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            V="${GITHUB_REF_NAME#v}"
+          elif [ -n "${INPUT_VERSION:-}" ]; then
+            V="$INPUT_VERSION"
+          else
+            V="${SMARTSSH_VERSION_FALLBACK:-0.0.0-dev}"
+          fi
+          V="$(printf '%s' "$V" | tr -d '[:space:]')"
+          case "$V" in
+            ''|*[!0-9A-Za-z.+-]*) echo "::error::resolved version '$V' contains unexpected characters"; exit 1 ;;
+          esac
+          echo "SMARTSSH_VERSION=$V" >> "$GITHUB_ENV"
+          echo "resolved SMARTSSH_VERSION=$V (ref_type=${GITHUB_REF_TYPE:-}, ref=${GITHUB_REF:-})"
       - name: Install deps
         id: install
         run: |
