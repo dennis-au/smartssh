@@ -85,7 +85,18 @@ jobs:
           Get-Content extras/smartssh-buildinfo.json
       - name: Portable exe
         id: portable
-        run: node scripts/build-smartssh.mjs
+        run: |
+          # Staging lives in this step on purpose. `electron-builder.yml` declares
+          # `extraResources: builtin-plugins`, and electron-builder skips an extraResources directory
+          # that does not exist *silently* — that is how run 19 shipped an exe with no plugins at all
+          # (no xterm, no smartssh bar, no metrics writer, so UI metrics was always SKIPPED). Keeping
+          # the staging and both self-checks inside the packaging step means the exe cannot be
+          # produced without them again, and the six published step outcomes stay the six they
+          # always were.
+          node scripts/prepackage-plugins.mjs
+          node scripts/verify-packaging.mjs --stage=staged
+          node scripts/build-smartssh.mjs
+          node scripts/verify-packaging.mjs --stage=packaged
       - name: Hash + version
         id: hash
         shell: powershell
@@ -139,6 +150,13 @@ jobs:
           # Public repo: this file is world-readable. Identity + the six step outcomes only —
           # no runner name, no OS build number, no paths, no timestamps. testsOutput is emitted only
           # on a failing run, and it is the runner's own test-all output (repo-relative file names).
+          # Packaging evidence: written by scripts/verify-packaging.mjs inside the portable step. Counts
+          # and repo-relative names only (no runner name, no path, no timestamp), and it is the only
+          # way a verifier without a token can see whether the exe really carries builtin-plugins.
+          $packaging = $null
+          if (Test-Path packaging-report.json) {
+            try { $packaging = (Get-Content packaging-report.json -Raw).Trim() | ConvertFrom-Json } catch { $packaging = $null }
+          }
           $out = [ordered]@{
             run      = [int]$env:RUN_NUMBER
             commit   = $env:SHA
@@ -155,8 +173,9 @@ jobs:
             exe      = $exe
           }
           if ($testsOutput) { $out['testsOutput'] = $testsOutput }
+          if ($packaging) { $out['packaging'] = $packaging }
           New-Item -ItemType Directory -Force -Path ci-status | Out-Null
-          [IO.File]::WriteAllText((Join-Path $PWD "ci-status/$($env:RUN_NUMBER).json"), ($out | ConvertTo-Json -Depth 3), (New-Object Text.UTF8Encoding($false)))
+          [IO.File]::WriteAllText((Join-Path $PWD "ci-status/$($env:RUN_NUMBER).json"), ($out | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
           Get-Content "ci-status/$($env:RUN_NUMBER).json"
       - name: Commit status
         if: always()
@@ -183,6 +202,7 @@ jobs:
             dist/*portable*.exe
             artifact-sha256.txt
             extras/smartssh-buildinfo.json
+            packaging-report.json
           retention-days: 90
           if-no-files-found: ignore
       # Tag pushes only, and only when the build actually produced an exe. Draft, never public:

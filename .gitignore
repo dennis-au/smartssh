@@ -44,3 +44,7 @@ extras/UAC.exe
 # SmartSSH UI measurement output (written when SMARTSSH_METRICS=1)
 /data/metrics.json
 /data/smartssh-buildinfo.json
+
+# Packaging outputs: built by scripts/prepackage-plugins.mjs and scripts/verify-packaging.mjs
+builtin-plugins/
+packaging-report.json
