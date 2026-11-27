@@ -1,0 +1,15 @@
+{
+    "run":  19,
+    "commit":  "34c7729c3f59d9d7494f2d33e3c7e9b769b4ab28",
+    "status":  "success",
+    "steps":  {
+                  "install":  "success",
+                  "tests":  "success",
+                  "webpack":  "success",
+                  "buildinfo":  "success",
+                  "portable":  "success",
+                  "hash":  "success"
+              },
+    "sha256":  "smartssh-1.0.240-portable-x64.exe  66089E451E2C6B232819D470959D352BD4AFDDA095768BA7387A2E448BCB20D3",
+    "exe":  "smartssh-1.0.240-portable-x64.exe 117.6MB"
+}
