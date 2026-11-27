@@ -1,7 +1,12 @@
 name: smartssh-win
 on:
-  # dispatch-only: a push never spends runner minutes. Every exe is produced on purpose.
+  # Two ways in: an operator-chosen manual run, and a version tag push (v*), which builds
+  # the portable exe and opens a DRAFT release for a human to publish. A plain branch push
+  # still never spends runner minutes.
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 concurrency:
   group: smartssh-win-${{ github.ref }}
   cancel-in-progress: true
@@ -135,3 +140,17 @@ jobs:
             extras/smartssh-buildinfo.json
           retention-days: 90
           if-no-files-found: ignore
+      # Tag pushes only, and only when the build actually produced an exe. Draft, never public:
+      # a human decides when a release goes live.
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # PowerShell does not glob arguments for native commands, so resolve the exe here.
+          $exe = Get-ChildItem dist -Filter *portable*.exe | Select-Object -First 1
+          if (-not $exe) { throw "no *portable*.exe in dist; refusing to open an empty release" }
+          $sha = "$env:GITHUB_SHA".Substring(0, 7)
+          gh release create "$env:GITHUB_REF_NAME" --draft --title "$env:GITHUB_REF_NAME" --notes "portable exe built from $sha ($env:GITHUB_SHA)" $exe.FullName artifact-sha256.txt
+          gh release view "$env:GITHUB_REF_NAME" --json isDraft,url
