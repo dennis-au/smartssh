@@ -6,6 +6,7 @@
 // Run: node smartssh/app/metricsPath.test.mjs
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +18,12 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = join(HERE, '..', '..')
+
+// Two real, distinct cwds. `process.chdir('/')` is not portable (on Windows '/' is the current
+// drive root, and posix literals below are resolved with the win32 api on a win32 host), so the
+// "cwd is not part of the answer" test uses temp dirs that exist on every platform.
+const CWD_A = fs.mkdtempSync(join(os.tmpdir(), 'smartssh-cwd-a-'))
+const CWD_B = fs.mkdtempSync(join(os.tmpdir(), 'smartssh-cwd-b-'))
 
 let total = 0
 let fails = 0
@@ -32,7 +39,7 @@ function test (name, fn) {
     }
 }
 
-/** Run `fn` with the process cwd at `/`, restoring it afterwards. */
+/** Run `fn` with the process cwd at `dir`, restoring it afterwards. */
 function withCwd (dir, fn) {
     const before = process.cwd()
     process.chdir(dir)
@@ -60,16 +67,16 @@ test('isMeasureEnabled accepts exactly "1" (whitespace tolerated)', () => {
 
 // ---------------------------------------------------------------- default path
 
-test('default path is <exe dir>/data/metrics.json, absolute, with cwd = /', () => {
-    withCwd('/', () => {
-        const out = resolveMetricsPath({}, '/opt/smartssh/smartssh.exe')
+test('default path is <exe dir>/data/metrics.json and absolute (posix rules)', () => {
+    withCwd(CWD_A, () => {
+        const out = resolveMetricsPath({}, '/opt/smartssh/smartssh.exe', 'linux')
         assert.equal(out, '/opt/smartssh/data/metrics.json')
-        assert.equal(path.isAbsolute(out), true)
+        assert.equal(path.posix.isAbsolute(out), true)
     })
 })
 
 test('cwd is not part of the answer: two different cwds give the same file', () => {
-    const seen = ['/', '/tmp'].map(dir => withCwd(dir, () => resolveMetricsPath({}, '/opt/smartssh/smartssh.exe')))
+    const seen = [CWD_A, CWD_B].map(dir => withCwd(dir, () => resolveMetricsPath({}, '/opt/smartssh/smartssh.exe', 'linux')))
     assert.equal(seen[0], seen[1])
     assert.equal(seen[0], '/opt/smartssh/data/metrics.json')
 })
@@ -88,13 +95,13 @@ test('no portable dir on win32 falls back to the exe directory, not userData', (
 })
 
 test('metricsBaseDir is the exe directory when PORTABLE_EXECUTABLE_DIR is absent', () => {
-    assert.equal(metricsBaseDir({}, '/opt/smartssh/smartssh.exe'), '/opt/smartssh')
-    assert.equal(metricsBaseDir({ PORTABLE_EXECUTABLE_DIR: '/media/usb/smartssh' }, '/opt/x.exe'), '/media/usb/smartssh')
+    assert.equal(metricsBaseDir({}, '/opt/smartssh/smartssh.exe', 'linux'), '/opt/smartssh')
+    assert.equal(metricsBaseDir({ PORTABLE_EXECUTABLE_DIR: '/media/usb/smartssh' }, '/opt/x.exe', 'linux'), '/media/usb/smartssh')
 })
 
 test('a host without execPath and without PORTABLE_EXECUTABLE_DIR fails loudly', () => {
-    assert.throws(() => resolveMetricsPath({}, ''), /execPath/)
-    assert.throws(() => metricsBaseDir({}, '   '), /execPath/)
+    assert.throws(() => resolveMetricsPath({}, '', 'linux'), /execPath/)
+    assert.throws(() => metricsBaseDir({}, '   ', 'linux'), /execPath/)
 })
 
 // ---------------------------------------------------------------- override
@@ -102,20 +109,21 @@ test('a host without execPath and without PORTABLE_EXECUTABLE_DIR fails loudly',
 test('SMARTSSH_MEASURE_PATH absolute wins outright', () => {
     const out = resolveMetricsPath(
         { [MEASURE_PATH_ENV]: '/var/tmp/smartssh/metrics.json', PORTABLE_EXECUTABLE_DIR: '/opt/smartssh' },
-        '/opt/smartssh/smartssh.exe')
+        '/opt/smartssh/smartssh.exe',
+        'linux')
     assert.equal(out, '/var/tmp/smartssh/metrics.json')
 })
 
 test('SMARTSSH_MEASURE_PATH relative is rooted at the exe dir, not cwd', () => {
-    withCwd('/', () => {
-        const out = resolveMetricsPath({ [MEASURE_PATH_ENV]: 'out/metrics.json' }, '/opt/smartssh/smartssh.exe')
+    withCwd(CWD_A, () => {
+        const out = resolveMetricsPath({ [MEASURE_PATH_ENV]: 'out/metrics.json' }, '/opt/smartssh/smartssh.exe', 'linux')
         assert.equal(out, '/opt/smartssh/out/metrics.json')
-        assert.equal(path.isAbsolute(out), true)
+        assert.equal(path.posix.isAbsolute(out), true)
     })
 })
 
 test('blank SMARTSSH_MEASURE_PATH is ignored (falls back to the default)', () => {
-    assert.equal(resolveMetricsPath({ [MEASURE_PATH_ENV]: '   ' }, '/opt/smartssh/smartssh.exe'),
+    assert.equal(resolveMetricsPath({ [MEASURE_PATH_ENV]: '   ' }, '/opt/smartssh/smartssh.exe', 'linux'),
         '/opt/smartssh/data/metrics.json')
 })
 
@@ -149,6 +157,10 @@ test('no third env spelling survives under smartssh/ or tabby-terminal/src/', ()
     assert.deepEqual(unexpected, [], `unexpected env spellings: ${unexpected.map(n => `${n} (${found.get(n)})`).join(', ')}`)
     assert.ok(names.length <= 2, `found ${names.length} names: ${names.join(', ')}`)
 })
+
+for (const dir of [CWD_A, CWD_B]) {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* best effort cleanup */ }
+}
 
 console.log(`${total - fails}/${total} passed`)
 process.exit(fails ? 1 : 0)

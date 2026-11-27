@@ -14,6 +14,10 @@ const t = (n, f) => { try { f(); r.push(['PASS', n]) } catch (e) { r.push(['FAIL
 
 const WIN_FALLBACK = 'C:\\Users\\me\\AppData\\Roaming\\SmartSSH'
 const POSIX_FALLBACK = '/home/me/.config/SmartSSH'
+// Explicit tmp roots so a posix-platform case never inherits a Windows-shaped os.tmpdir() (which
+// would make the expected value a '/'+'\' mix) and vice versa.
+const WIN_TMP = 'C:\\SmartSSHTemp'
+const POSIX_TMP = '/var/tmp/smartssh-test'
 
 // Windows' own os.tmpdir() is %LOCALAPPDATA%\Temp, so "must not contain AppData" is only a
 // meaningful assertion with an injected tmpDir; a separate case proves the fallback userData is
@@ -70,14 +74,15 @@ t('win32 portable + NOT writable => tmpdir/smartssh-ro, no AppData, not the fall
         [true, false, true, PORTABLE_REASON.PORTABLE_READ_ONLY])
 })
 
-t('linux portable + NOT writable => <tmpdir>/smartssh-ro with default tmpdir', () => {
+t('linux portable + NOT writable => <tmpdir>/smartssh-ro (posix join, injected tmpdir)', () => {
     const out = resolveUserDataPath({
         portableDir: '/mnt/cdrom/smartssh',
         isWritable: false,
         platform: 'linux',
         fallbackUserData: POSIX_FALLBACK,
+        tmpDir: POSIX_TMP,
     })
-    assert.strictEqual(out.path, path.posix.join(os.tmpdir(), 'smartssh-ro'))
+    assert.strictEqual(out.path, path.posix.join(POSIX_TMP, 'smartssh-ro'))
     assert.ok(!out.path.startsWith('/home/me/.config'), 'must not fall back to userData')
     assert.strictEqual(out.readOnlyMode, true)
 })
@@ -85,7 +90,8 @@ t('linux portable + NOT writable => <tmpdir>/smartssh-ro with default tmpdir', (
 t('read-only NEVER returns the Electron userData path (the %LOCALAPPDATA% fallback ban)', () => {
     for (const platform of ['win32', 'linux', 'darwin']) {
         const fallback = platform === 'win32' ? WIN_FALLBACK : POSIX_FALLBACK
-        const out = resolveUserDataPath({ portableDir: 'X:\\ro', isWritable: false, platform, fallbackUserData: fallback })
+        const tmpDir = platform === 'win32' ? WIN_TMP : POSIX_TMP
+        const out = resolveUserDataPath({ portableDir: 'X:\\ro', isWritable: false, platform, fallbackUserData: fallback, tmpDir })
         assert.notStrictEqual(out.path, fallback)
         assert.ok(!out.path.includes('SmartSSH') || out.path.endsWith('smartssh-ro'), 'unexpected path ' + out.path)
         assert.strictEqual(out.readOnlyMode, true)
@@ -167,7 +173,25 @@ t('result records are frozen (no accidental mutation by callers)', () => {
 function tmpFixture () {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'smartssh-probe-'))
 }
-const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
+
+// `chmod` denies writes only where the filesystem honours POSIX permission bits: root ignores
+// them, and on Windows chmod only toggles the read-only attribute (creating a file still
+// succeeds). Measure that capability rather than assuming it from process.platform — the two
+// probes below then run wherever they can actually prove something, and are reported as SKIP
+// (never as a silent pass) where they cannot.
+function chmodDeniesWrites () {
+    const dir = tmpFixture()
+    try {
+        fs.chmodSync(dir, 0o500)
+        return probeWritableDir(dir) === false
+    } catch {
+        return false
+    } finally {
+        try { fs.chmodSync(dir, 0o700) } catch { /* not supported on this filesystem */ }
+        try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* best effort */ }
+    }
+}
+const chmodCanDeny = chmodDeniesWrites()
 
 t('probeWritableDir: writable dir -> true and leaves no residue', () => {
     const dir = tmpFixture()
@@ -179,8 +203,8 @@ t('probeWritableDir: writable dir -> true and leaves no residue', () => {
     }
 })
 
-if (isRoot) {
-    r.push(['SKIP', 'probeWritableDir: unwritable dir -> false :: running as root, chmod cannot deny writes'])
+if (!chmodCanDeny) {
+    r.push(['SKIP', 'probeWritableDir: unwritable dir -> false :: chmod cannot deny writes here (root or non-POSIX filesystem)'])
 } else {
     t('probeWritableDir: unwritable dir -> false, creates nothing (no data dir)', () => {
         const dir = tmpFixture()

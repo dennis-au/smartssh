@@ -93,8 +93,24 @@ jobs:
           Get-ChildItem dist -Filter *portable*.exe -ErrorAction SilentlyContinue | ForEach-Object {
             $exe = "$($_.Name) $([math]::Round($_.Length/1MB,1))MB"
           }
+          # A step's stdout is not carried between steps, so when `tests` failed the only way this
+          # credential-free file can name the failing test file is to re-run the single entry point
+          # here and publish its tail. --json keeps the payload on stdout (progress goes to stderr).
+          # Never let this probe change the job's own outcome: exit code is reset, errors continue.
+          $testsOutput = ''
+          if ($env:S_TESTS -eq 'failure') {
+            $ErrorActionPreference = 'Continue'
+            $raw = (& node smartssh/verify/test-all.mjs --json 2>&1 | Out-String)
+            if ($null -ne $raw) {
+              $raw = $raw.Trim()
+              if ($raw.Length -gt 4000) { $raw = $raw.Substring($raw.Length - 4000) }
+              $testsOutput = $raw
+            }
+            $global:LASTEXITCODE = 0
+          }
           # Public repo: this file is world-readable. Identity + the six step outcomes only —
-          # no runner name, no OS build number, no paths, no timestamps.
+          # no runner name, no OS build number, no paths, no timestamps. testsOutput is emitted only
+          # on a failing run, and it is the runner's own test-all output (repo-relative file names).
           $out = [ordered]@{
             run      = [int]$env:RUN_NUMBER
             commit   = $env:SHA
@@ -110,6 +126,7 @@ jobs:
             sha256   = $hash
             exe      = $exe
           }
+          if ($testsOutput) { $out['testsOutput'] = $testsOutput }
           New-Item -ItemType Directory -Force -Path ci-status | Out-Null
           [IO.File]::WriteAllText((Join-Path $PWD "ci-status/$($env:RUN_NUMBER).json"), ($out | ConvertTo-Json -Depth 3), (New-Object Text.UTF8Encoding($false)))
           Get-Content "ci-status/$($env:RUN_NUMBER).json"

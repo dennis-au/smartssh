@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { judgeMetrics, parseMetrics, SCHEMA } from './metrics.mjs'
 import { measurementToCase, writeMetrics } from './metricsWriter.mjs'
 
@@ -59,7 +61,14 @@ test('three cases round-trip and satisfy the judge', () => {
   assert.equal(parsed.error, undefined)
   assert.deepEqual(parsed.metrics, { schema: SCHEMA, build, cases })
   assert.deepEqual(judgeMetrics(parsed.metrics, { commit }).filter(r => r.status === 'FAIL'), [])
-  writeFileSync('/tmp/w.json', text, 'utf8')
+  // Persist one real document so the write side is exercised on this host's own temp volume.
+  // (/tmp/w.json is a posix-only literal: on Windows it means <current drive>:\tmp\w.json.)
+  const dir = mkdtempSync(join(tmpdir(), 'smartssh-metrics-writer-'))
+  try {
+    writeFileSync(join(dir, 'metrics.json'), text, 'utf8')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 test('partial writes throw and list every missing case', () => {
   assert.throws(() => writeMetrics({ build, cases: cases.slice(0, 2) }),
