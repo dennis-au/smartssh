@@ -40,3 +40,7 @@ crowdin.yml
 
 # built from tabby-uac/ by CI; see .github/workflows/build.yml
 extras/UAC.exe
+
+# SmartSSH UI measurement output (written when SMARTSSH_METRICS=1)
+/data/metrics.json
+/data/smartssh-buildinfo.json
