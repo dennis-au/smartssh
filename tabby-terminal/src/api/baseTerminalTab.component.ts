@@ -15,6 +15,7 @@ import { TerminalDecorator } from './decorator'
 import { SearchPanelComponent } from '../components/searchPanel.component'
 import { MultifocusService } from '../services/multifocus.service'
 import { getTerminalBackgroundColor } from '../helpers'
+import { createProposalService, CASE_SPEC } from '../../../smartssh/app/proposalService.mjs'
 
 
 const INACTIVE_TAB_UNLOAD_DELAY = 1000 * 30
@@ -75,6 +76,17 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
 
     /** SmartSSH approval bar. null means "no proposal", so the row is not rendered at all. */
     smartsshProposal: any = null
+
+    /**
+     * Latest prompt token learned by a SmartSSH push, and whether the relay proved it with two
+     * agreeing samples. Empty/untrusted keeps the gate fail-closed: no token, no proposal.
+     */
+    smartsshProposalToken = ''
+    smartsshProposalTokenTrusted = false
+
+    /** The only writer of `smartsshProposal`; see startSmartSSHProposal(). */
+    private smartsshProposalService: any = null
+    private smartsshProposalUnsubscribe: (() => void)|null = null
 
     @Input() showSearchPanel = false
 
@@ -491,6 +503,113 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
             this.recentInputs += data
             this.recentInputs = this.recentInputs.substring(this.recentInputs.length - 32)
         })
+
+        this.startSmartSSHProposal()
+    }
+
+    /**
+     * SmartSSH: attach the proposal producer to this tab's xterm buffer.
+     *
+     * Before this, `smartsshProposal` was declared and never assigned, so `smartssh-bar` in
+     * baseTerminalTab.component.pug could never render and the whole feature was dead in the
+     * shipped exe. The service is now the single writer of that field: it reads the real buffer,
+     * runs the gate and the settler from smartssh/core, and publishes a model that has already
+     * passed `barModel()`. A null model unmounts the bar (no `*ngIf` change needed).
+     */
+    protected startSmartSSHProposal (): void {
+        if (this.smartsshProposalService) {
+            return
+        }
+        const xterm = (this.frontend as any)?.xterm
+        if (!xterm) {
+            return
+        }
+        try {
+            this.smartsshProposalService = createProposalService({
+                buffer: () => this.smartSSHBuffer(),
+                token: { token: this.smartsshProposalToken, tokenTrusted: this.smartsshProposalTokenTrusted },
+                clock: { now: () => Date.now() },
+                intervalMs: 120,
+                autoRun: 'off', // the renderer may never arm auto-run on its own
+                metrics: (globalThis as any).process?.env?.SMARTSSH_METRICS === '1',
+                measurement: (caseId: string) => this.measureSmartSSHCase(caseId),
+            })
+        } catch (error) {
+            this.logger.warn('SmartSSH proposal service failed to start', error)
+            this.smartsshProposalService = null
+            return
+        }
+        this.smartsshProposalUnsubscribe = this.smartsshProposalService.subscribe((model: any) => {
+            this.zone.run(() => {
+                this.smartsshProposal = model
+            })
+        })
+        this.smartsshProposalService.start()
+    }
+
+    /** The injectable buffer reader: a live view over this tab's xterm buffer. */
+    private smartSSHBuffer (): any {
+        const xterm = (this.frontend as any)?.xterm
+        if (!xterm) {
+            return null
+        }
+        const active = () => xterm.buffer.active
+        const tab = this
+        return {
+            get cols () { return xterm.cols },
+            get rows () { return xterm.rows },
+            get cursorX () { return active().cursorX },
+            get cursorY () { return active().cursorY },
+            get baseY () { return active().baseY },
+            get viewportY () { return active().viewportY },
+            get altScreen () { return active().type === 'alternate' },
+            get selection () { return !!tab.frontend?.getSelection?.() },
+            getLine: (y: number) => active().getLine(y),
+        }
+    }
+
+    /**
+     * UI measurement for SMARTSSH_METRICS=1. Only the case whose declared window geometry matches
+     * this window is measured for real; the other two keep their declared geometry, so a run never
+     * reports numbers for a window it never had.
+     */
+    private measureSmartSSHCase (caseId: string): any {
+        const xterm = (this.frontend as any)?.xterm
+        const el: HTMLElement|undefined = this.content?.nativeElement
+        const spec = (CASE_SPEC as any)[caseId]
+        if (!xterm || !el || !spec || typeof window === 'undefined') {
+            return {}
+        }
+        if (Math.abs(window.innerWidth - spec.window.wCss) > 2 || Math.abs(window.innerHeight - spec.window.hCss) > 2) {
+            return {}
+        }
+        const rect = el.getBoundingClientRect()
+        const cellHeightPx = rect.height > 0 && xterm.rows > 0 ? rect.height / xterm.rows : spec.viewport.cellHeightPx
+        return { rows: xterm.rows, cols: xterm.cols, cellHeightPx }
+    }
+
+    /** Called by the SmartSSH relay when a push supplies the learned prompt token. */
+    setSmartSSHProposalToken (token: string, trusted = false): void {
+        this.smartsshProposalToken = token
+        this.smartsshProposalTokenTrusted = trusted
+        this.smartsshProposalService?.setToken({ token, tokenTrusted: trusted })
+        this.smartsshProposalService?.tick()
+    }
+
+    /** Called by the SmartSSH relay with a command that is ready to be offered on the bar. */
+    proposeSmartSSHCommand (command: string, risk: 'read'|'write'|'danger' = 'write', why = '', confirmExpected?: string): any {
+        if (!this.smartsshProposalService) {
+            return { queued: false, reason: 'not-ready' }
+        }
+        return this.smartsshProposalService.propose({ command, risk, why, confirm_expected: confirmExpected })
+    }
+
+    protected stopSmartSSHProposal (): void {
+        this.smartsshProposalUnsubscribe?.()
+        this.smartsshProposalUnsubscribe = null
+        this.smartsshProposalService?.stop()
+        this.smartsshProposalService = null
+        this.smartsshProposal = null
     }
 
     async buildContextMenu (): Promise<MenuItemOptions[]> {
@@ -509,6 +628,11 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
     sendInput (data: string|Buffer): void {
         if (!(data instanceof Buffer)) {
             data = Buffer.from(data, 'utf-8')
+        }
+        // A submitted line is a feed: the settler must know, or a dispatched command would look
+        // like it never started and a proposal could be offered while output is still coming.
+        if (this.smartsshProposalService && (data.includes(0x0d) || data.includes(0x0a))) {
+            this.smartsshProposalService.noteFeed()
         }
         this.session?.feedFromTerminal(data)
         if (this.config.store.terminal.scrollOnInput && !data.equals(OSC_FOCUS_IN) && !data.equals(OSC_FOCUS_OUT)) {
@@ -637,6 +761,7 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
     /** @hidden */
     ngOnDestroy (): void {
         super.ngOnDestroy()
+        this.stopSmartSSHProposal()
         this.stopSpinner()
     }
 
@@ -646,6 +771,7 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
         this.frontend = undefined
         this.content.nativeElement.remove()
         this.detachTermContainerHandlers()
+        this.stopSmartSSHProposal()
         this.config.enabledServices(this.decorators).forEach(decorator => {
             try {
                 decorator.detach(this)
