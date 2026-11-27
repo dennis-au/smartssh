@@ -31,6 +31,21 @@ if (process.env.TABBY_DEV && !process.env.TABBY_FORCE_ANGULAR_PROD) {
     enableProdMode()
 }
 
+// SmartSSH portable state, mirrored into the renderer for UI/diagnostics.
+// The authoritative redirect — app.setPath('userData', <resolved path>) — is done once in the main
+// process by app/lib/portable.ts (imported from app/lib/index.ts before app.whenReady(); see
+// smartssh/app/portablePath.mjs for the resolution rules). A renderer must not touch app paths, so
+// this side only reads what the main process published and hands it to the page.
+const smartsshPortable = {
+    portableRoot: process.env.PORTABLE_EXECUTABLE_DIR ?? null,
+    userDataPath: process.env.SMARTSSH_USERDATA_PATH ?? null,
+    readOnly: process.env.SMARTSSH_PORTABLE_READONLY === '1',
+}
+window['smartsshPortable'] = smartsshPortable
+if (smartsshPortable.readOnly) {
+    console.warn('SmartSSH: read-only portable media, userData is scratch space:', smartsshPortable.userDataPath)
+}
+
 async function bootstrap (bootstrapData: BootstrapData, plugins: PluginInfo[], safeMode = false): Promise<NgModuleRef<any>> {
     if (safeMode) {
         plugins = plugins.filter(x => x.isBuiltin)
