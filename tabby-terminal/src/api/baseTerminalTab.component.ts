@@ -16,6 +16,7 @@ import { SearchPanelComponent } from '../components/searchPanel.component'
 import { MultifocusService } from '../services/multifocus.service'
 import { getTerminalBackgroundColor } from '../helpers'
 import { createProposalService, CASE_SPEC } from '../../../smartssh/app/proposalService.mjs'
+import { createRelayBridgeFromEnv } from '../../../smartssh/app/relayBridge.mjs'
 
 
 const INACTIVE_TAB_UNLOAD_DELAY = 1000 * 30
@@ -87,6 +88,15 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
     /** The only writer of `smartsshProposal`; see startSmartSSHProposal(). */
     private smartsshProposalService: any = null
     private smartsshProposalUnsubscribe: (() => void)|null = null
+    /**
+     * Relay side of the same feature: model events -> relay v2 HTTP calls. Null when the relay is
+     * not configured or failed to start; the bar then shows `offline` and the app still works.
+     */
+    private smartsshRelayBridge: any = null
+    private smartsshRelayContext = { proposalId: '', tabId: '', sessionId: '' }
+    private smartsshRelayConfirmCode = ''
+    private smartsshRelayLocalId =
+        (globalThis as any).crypto?.randomUUID?.() ?? `smartssh-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
 
     @Input() showSearchPanel = false
 
@@ -544,6 +554,22 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
                 this.smartsshProposal = model
             })
         })
+        // Relay transport for the same model events. A missing SMARTSSH_RELAY_URL/RELAY_TOKEN, or
+        // any construction failure, leaves the bridge null/offline: the terminal keeps working.
+        try {
+            this.smartsshRelayBridge = createRelayBridgeFromEnv({
+                service: this.smartsshProposalService,
+                env: (globalThis as any).process?.env ?? {},
+                proposalId: () => this.smartsshRelayContext.proposalId,
+                tabId: () => this.smartsshRelayContext.tabId || this.smartsshRelayLocalId,
+                sessionId: () => this.smartsshRelayContext.sessionId || this.smartsshRelayLocalId,
+                confirmCode: () => this.smartsshRelayConfirmCode,
+            })
+            this.smartsshRelayBridge.start()
+        } catch (error) {
+            this.logger.warn('SmartSSH relay bridge failed to start', error)
+            this.smartsshRelayBridge = null
+        }
         this.smartsshProposalService.start()
     }
 
@@ -604,7 +630,34 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
         return this.smartsshProposalService.propose({ command, risk, why, confirm_expected: confirmExpected })
     }
 
+    /**
+     * Called by whatever receives relay pushes. The relay owns proposal_id/tab_id/session_id, so the
+     * app never invents them: the bridge sends back exactly these values on dispatch.
+     */
+    setSmartSSHRelayContext (context: {proposalId?: string, tabId?: string, sessionId?: string}): void {
+        this.smartsshRelayContext = { ...this.smartsshRelayContext, ...context }
+        if (context.proposalId !== undefined) {
+            this.smartsshRelayBridge?.setProposalId(context.proposalId)
+        }
+    }
+
+    /** The danger code the user is about to submit; mirrored to the relay on dispatch. */
+    noteSmartSSHRelayConfirmCode (code: string): void {
+        this.smartsshRelayConfirmCode = code
+        this.smartsshRelayBridge?.noteConfirmCode(code)
+    }
+
+    /** `online` when a relay client exists, `offline` otherwise. Never includes the token. */
+    smartsshRelayStatus (): {status: string, cause?: string} {
+        if (!this.smartsshRelayBridge) {
+            return { status: 'offline', cause: 'token' }
+        }
+        return this.smartsshRelayBridge.summary()
+    }
+
     protected stopSmartSSHProposal (): void {
+        this.smartsshRelayBridge?.stop()
+        this.smartsshRelayBridge = null
         this.smartsshProposalUnsubscribe?.()
         this.smartsshProposalUnsubscribe = null
         this.smartsshProposalService?.stop()
