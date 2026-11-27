@@ -22,6 +22,7 @@
  * build, no absolute path, no timestamp.
  */
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -118,29 +119,60 @@ function findPortableExe () {
     return exes.length ? path.join(dist, exes[0]) : null
 }
 
+/** 7z payload signature, i.e. where the NSIS stub ends and the real application archive begins. */
+const SEVEN_Z_MAGIC = Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c])
+
 /**
- * Best-effort corroboration on the finished exe: an electron-builder portable target is an NSIS
- * stub wrapping a 7z payload, and 7-Zip opens it. Recorded either way; the win-unpacked check above
- * is the fail-closed one because it inspects exactly the tree that gets packed.
+ * Corroboration on the finished exe: an electron-builder portable target is an NSIS stub wrapping a
+ * 7z payload, and 7-Zip's NSIS handler only shows the stub (4 entries, zero plugins — which is what
+ * a naive `7z l exe` printed even for a good build). So carve the payload at the 7z signature into a
+ * temporary file first, then list *that*. Recorded as SKIPPED when no 7-Zip is on PATH: the
+ * win-unpacked check above is the fail-closed one, because it inspects exactly the tree that gets
+ * packed.
  */
 function listExePayload (exePath) {
-    const candidates = [
-        process.env.SEVEN_ZIP,
-        '7z',
-        '7za',
-        'C:\\Program Files\\7-Zip\\7z.exe',
-    ].filter(Boolean)
-    for (const tool of candidates) {
+    const data = fs.readFileSync(exePath)
+    const offset = data.indexOf(SEVEN_Z_MAGIC)
+    if (offset < 0) {
+        return { error: 'no 7z payload signature in the exe' }
+    }
+    const carved = path.join(os.tmpdir(), `smartssh-payload-${process.pid}.7z`)
+    fs.writeFileSync(carved, data.subarray(offset))
+    try {
+        const candidates = [process.env.SEVEN_ZIP, '7z', '7za', 'C:\\Program Files\\7-Zip\\7z.exe'].filter(Boolean)
+        for (const tool of candidates) {
+            let out
+            try {
+                out = execFileSync(tool, ['l', '-slt', carved], {
+                    encoding: 'utf-8',
+                    stdio: ['ignore', 'pipe', 'ignore'],
+                    maxBuffer: 64 * 1024 * 1024,
+                })
+            } catch (error) {
+                continue // try the next candidate; a missing 7-Zip is not a packaging failure
+            }
+            const names = out.split(/\r?\n/)
+                .filter(line => line.startsWith('Path = '))
+                .map(line => line.slice('Path = '.length).trim().replace(/\\/g, '/'))
+                .filter(name => name && name !== carved)
+            return {
+                tool,
+                payloadOffset: offset,
+                entries: names.length,
+                builtinPluginsEntries: names.filter(name => name.includes('resources/builtin-plugins/')).length,
+                pluginPackages: REQUIRED_PLUGINS
+                    .filter(plugin => names.includes(`resources/builtin-plugins/${plugin}/package.json`))
+                    .map(plugin => `resources/builtin-plugins/${plugin}/package.json`),
+            }
+        }
+        return { error: 'no 7-Zip binary found (SEVEN_ZIP, 7z, 7za, C:\\Program Files\\7-Zip\\7z.exe)' }
+    } finally {
         try {
-            const out = execFileSync(tool, ['l', '-ba', exePath], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] })
-            const names = out.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-            const builtin = names.filter(name => /builtin-plugins[\\/]/.test(name))
-            return { tool, entries: names.length, builtinPluginsEntries: builtin.length }
+            fs.unlinkSync(carved)
         } catch (error) {
-            // try the next candidate; a missing 7-Zip is not a failure of the packaging itself
+            // the temp file is 100+ MB; a failed cleanup must not fail the packaging check
         }
     }
-    return null
 }
 
 function main () {
@@ -199,11 +231,28 @@ function main () {
         const exePath = findPortableExe()
         check('portable exe produced', !!exePath, exePath ? path.basename(exePath) : 'no dist/*portable*.exe')
         if (exePath) {
-            exe = { file: path.basename(exePath), bytes: fs.statSync(exePath).size, payload: listExePayload(exePath) }
+            const payload = listExePayload(exePath)
+            exe = { file: path.basename(exePath), bytes: fs.statSync(exePath).size, payload }
+            if (payload.error) {
+                // Three-state, like windows-checklist.ps1: a missing 7-Zip is a SKIP, never a PASS.
+                checks.push({
+                    name: 'exe payload listing',
+                    ok: true,
+                    skipped: true,
+                    detail: `SKIPPED: ${payload.error} (the win-unpacked check above stays fail-closed)`,
+                })
+            } else {
+                check('exe payload carries builtin-plugins', payload.builtinPluginsEntries > 0,
+                    `${payload.builtinPluginsEntries} entries under resources/builtin-plugins/ via ${payload.tool}, ${payload.entries} payload entries total`)
+                check('exe payload carries the three plugin package.json files',
+                    payload.pluginPackages.length === REQUIRED_PLUGINS.length,
+                    payload.pluginPackages.join(',') || 'none')
+            }
         }
     }
 
-    const failed = checks.filter(entry => !entry.ok)
+    const failed = checks.filter(entry => !entry.ok && !entry.skipped)
+    const skipped = checks.filter(entry => entry.skipped)
     const report = {
         stage,
         ok: failed.length === 0,
@@ -214,9 +263,11 @@ function main () {
     fs.writeFileSync(path.join(repoRoot, 'packaging-report.json'), JSON.stringify(report, null, 2) + '\n')
 
     for (const entry of checks) {
-        console.log(`${entry.ok ? 'PASS' : 'FAIL'}  ${entry.name}  ${entry.detail}`)
+        const status = entry.skipped ? 'SKIP' : entry.ok ? 'PASS' : 'FAIL'
+        console.log(`${status}  ${entry.name}  ${entry.detail}`)
     }
-    console.log(`${stage}: ${checks.length - failed.length}/${checks.length} checks passed`)
+    const counted = checks.length - skipped.length
+    console.log(`${stage}: ${counted - failed.length}/${counted} checks passed` + (skipped.length ? `, ${skipped.length} skipped` : ''))
     if (failed.length) {
         console.error(`packaging self-check FAILED (${failed.length}): ${failed.map(entry => entry.name).join(', ')}`)
         process.exit(1)

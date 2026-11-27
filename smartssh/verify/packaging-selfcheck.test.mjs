@@ -118,6 +118,16 @@ try {
         assert.equal(text.includes(good), false, 'report leaked the absolute fixture path')
         assert.equal(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text), false, 'report leaked a timestamp')
     })
+    t('an exe without a 7z payload is SKIPPED, never a silent PASS', () => {
+        const { code, report } = run(good, 'packaged')
+        assert.equal(code, 0)
+        const listing = report.checks.find(entry => entry.name === 'exe payload listing')
+        assert.ok(listing, 'no exe payload check in the report')
+        assert.equal(listing.skipped, true)
+        assert.match(listing.detail, /^SKIPPED:/)
+        // a SKIP must not be counted as a passed check
+        assert.equal(report.checks.some(entry => entry.name === 'exe payload carries builtin-plugins'), false)
+    })
 
     // ------------------------------------------- negative: the four ways run 19's tree was wrong
     t('missing builtin-plugins/ fails the staged stage', () => {
