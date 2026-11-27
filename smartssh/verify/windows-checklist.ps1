@@ -68,7 +68,7 @@ if (-not $MetricsPath) {
 }
 $node = (Get-Command node -ErrorAction SilentlyContinue)
 if (-not $MetricsPath -or -not (Test-Path $MetricsPath)) {
-    Skip "UI metrics" "no data\metrics.json - this build has no measurement hook / no bar UI"
+    Skip "UI metrics" "no data\metrics.json next to the exe - run it with SMARTSSH_MEASURE=1 (or pass -MetricsPath)"
 } elseif (-not $node) {
     Skip "UI metrics" "node not found on PATH; run: node smartssh\core\metrics-check.mjs --metrics $MetricsPath"
 } else {

@@ -16,6 +16,7 @@ import { SearchPanelComponent } from '../components/searchPanel.component'
 import { MultifocusService } from '../services/multifocus.service'
 import { getTerminalBackgroundColor } from '../helpers'
 import { createProposalService, CASE_SPEC } from '../../../smartssh/app/proposalService.mjs'
+import { isMeasureEnabled } from '../../../smartssh/app/metricsPath.mjs'
 import { createRelayBridgeFromEnv } from '../../../smartssh/app/relayBridge.mjs'
 
 
@@ -535,13 +536,18 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
             return
         }
         try {
+            // One switch name (SMARTSSH_MEASURE) and a path rooted at the exe directory — the same
+            // rules `windows-checklist.ps1` reads. A renderer may have no `process` at all.
+            const env: Record<string, string|undefined> = (globalThis as any).process?.env ?? {}
             this.smartsshProposalService = createProposalService({
                 buffer: () => this.smartSSHBuffer(),
                 token: { token: this.smartsshProposalToken, tokenTrusted: this.smartsshProposalTokenTrusted },
                 clock: { now: () => Date.now() },
                 intervalMs: 120,
                 autoRun: 'off', // the renderer may never arm auto-run on its own
-                metrics: (globalThis as any).process?.env?.SMARTSSH_METRICS === '1',
+                // Path is resolved by the service at flush time (SMARTSSH_MEASURE_PATH, else
+                // <exe dir>/data/metrics.json), so a renderer without process.execPath still runs.
+                metrics: isMeasureEnabled(env),
                 measurement: (caseId: string) => this.measureSmartSSHCase(caseId),
             })
         } catch (error) {
@@ -595,7 +601,7 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
     }
 
     /**
-     * UI measurement for SMARTSSH_METRICS=1. Only the case whose declared window geometry matches
+     * UI measurement for SMARTSSH_MEASURE=1. Only the case whose declared window geometry matches
      * this window is measured for real; the other two keep their declared geometry, so a run never
      * reports numbers for a window it never had.
      */

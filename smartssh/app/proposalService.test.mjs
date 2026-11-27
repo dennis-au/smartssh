@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import { execSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pkg from '@xterm/headless'
 
@@ -470,17 +470,20 @@ test('T. Xlarge: CJK prompt prefix is measured in cells, not UTF-16 units (real 
 })
 
 // ---------------------------------------------------------------- metrics
-test('U. SMARTSSH_METRICS=1 writes data/metrics.json for the three cases, armed', async () => {
+test('U. SMARTSSH_MEASURE=1 (app default wiring) writes data/metrics.json for the three cases, armed', async () => {
   const term = head(78, 7)
   await write(term, PROMPT)
   const commit = (() => {
     try { return execSync('git rev-parse --short HEAD', { cwd: HERE, encoding: 'utf8' }).trim() } catch { return '0000000' }
   })()
   const build = { version: `1.0.238 · local.1 · ${commit}`, sha256: 'a'.repeat(64), commit }
+  // No metrics/metricsPath option on purpose: this is the switch the app actually reads, with the
+  // real resolver — the env name and the file path are the two contract holes this test pins.
+  const env = { ...process.env }
+  process.env.SMARTSSH_MEASURE = '1'
+  process.env.SMARTSSH_MEASURE_PATH = METRICS_PATH
   const { service, clock } = makeService(term, {
     service: {
-      metrics: true,
-      metricsPath: METRICS_PATH,
       build,
       measurement: (caseId, ctx) => ({ rows: CASE_SPEC[caseId].viewport.rows, state: ctx.state }),
     },
@@ -491,8 +494,9 @@ test('U. SMARTSSH_METRICS=1 writes data/metrics.json for the three cases, armed'
   service.reject()
   const flushed = service.flushMetrics()
   service.stop()
+  process.env = env
 
-  assert.equal(flushed.path, METRICS_PATH)
+  assert.equal(flushed.path, resolve(METRICS_PATH))
   const text = readFileSync(METRICS_PATH, 'utf8')
   const parsed = parseMetrics(text)
   assert.equal(parsed.error, undefined, `metrics.json invalid: ${parsed.error}`)

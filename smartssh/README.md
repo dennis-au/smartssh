@@ -39,6 +39,36 @@ SmartSSH 的 portable build 由 electron-builder 的 `portable` target 產生，
 > `smartssh` HEAD 自行 build，只有舊行為（exe 旁邊**已存在** `data\` 才使用），見
 > [CHANGELOG.md](CHANGELOG.md) 的「合併狀態」。
 
+## UI metrics
+
+`smartssh/verify/windows-checklist.ps1` 的第 3 段要讀 `<exe 所在資料夾>\data\metrics.json`，
+交 `smartssh/core/metrics-check.mjs` 判 PASS/FAIL。這個檔由 app 自己寫，位置不是 cwd：
+
+| 變數 | 用途 |
+| --- | --- |
+| `SMARTSSH_MEASURE` | 設 `1` 才寫 metrics；其他值（`true`、`0`、空白）一律當關閉 |
+| `SMARTSSH_MEASURE_PATH` | 選填。絕對路徑直接用；相對路徑以 **exe 所在資料夾**為根，不是 cwd |
+
+- 沒有 `SMARTSSH_MEASURE_PATH` 時，檔案寫到 `<exe 資料夾>\data\metrics.json`
+  （`PORTABLE_EXECUTABLE_DIR` 有設就用它，否則用 exe 自己的資料夾），
+  即 checklist 找的同一個位置。
+- 檔案在關閉視窗／終端分頁時 flush（`service.stop()`），內容是三個 case：
+  `683x512`、`911x512`、`900-high-split`。只有與當前視窗尺寸相差 ≤2px 的那個 case 是真量測，
+  其餘兩個沿用宣告幾何（見 `CASE_SPEC`）。
+- build 身份由 exe 旁邊的 `resources\extras\smartssh-buildinfo.json` 讀（依序再試
+  `<exe>\extras\`、`<exe>\data\`，最後才是開發用的 cwd 相對路徑）；同一個檔就是 checklist 傳給
+  `--buildinfo` 的那個。找不到身份就寫不出可判的檔，`flush` 會報錯而不是寫一個假的 commit。
+- `trustVisible.armed` 只有在 service 處於 armed（有可信 token）時才為 `true`；
+  未 armed 的 run 寫出的檔會被判 FAIL，所以量測請在有 push token 的狀態下做。
+- 自行判檔：
+
+  ```sh
+  node smartssh/core/metrics-check.mjs --metrics <exe>\data\metrics.json --buildinfo <exe>\resources\extras\smartssh-buildinfo.json
+  ```
+
+  沒有 `--buildinfo` 時，「build.commit 對得上 exe」那條會 SKIPPED；要 `0 skipped` 就一齊傳。
+- 路徑規則的實作在 `smartssh/app/metricsPath.mjs`（`resolveMetricsPath()` / `isMeasureEnabled()`）。
+
 ## Relay 設定
 
 relay 是一個獨立的小型 HTTP 服務（`smartssh/relay/`），負責收 terminal window 的
