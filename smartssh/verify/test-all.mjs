@@ -38,11 +38,14 @@ const EXIT_DEPS = 3
 
 const TAIL_LINES = 25
 const OUTPUT_CHARS = 8192
+/** Per-failure excerpt published in --json (`failures[].tail`) and in ci-status/<run>.json. */
+const FAILURE_TAIL_CHARS = 2000
 const FILE_TIMEOUT_MS = Number(process.env.SMARTSSH_TEST_TIMEOUT_MS) || 300_000
 
 const USAGE = `usage: node smartssh/verify/test-all.mjs [--json] [--help]
 
-  --json   print {"files","passed","failed","durationMs"} on stdout (progress goes to stderr)
+  --json   print {"files","passed","failed","durationMs","failures"} on stdout (progress goes to stderr);
+           failures[] carries { file, exitCode, tail } so a credential-free reader can name the file
   --help   show this message`
 
 /** `x.test.mjs` anywhere under smartssh/, plus smartssh/core/selftest.mjs. */
@@ -110,12 +113,15 @@ function runFile (absPath) {
     child.on('close', (code, signal) => {
       clearTimeout(timer)
       const tail = output.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.length > 0)
+      const exitCode = timedOut ? 'timeout' : (code ?? signal ?? 'signal')
       resolvePromise({
         file: relPath(absPath),
-        code: timedOut ? 'timeout' : (code ?? signal ?? 'signal'),
+        code: exitCode,
         ok: !timedOut && code === 0,
         durationMs: Date.now() - started,
         tail: tail.slice(-TAIL_LINES),
+        // Raw character tail: the machine-readable answer to "which file failed, and why".
+        outputTail: output.slice(-FAILURE_TAIL_CHARS),
       })
     })
   })
@@ -147,7 +153,15 @@ async function main () {
   }
 
   if (!depsInstalled()) {
-    const payload = { files: total, passed: 0, failed: total, durationMs: 0 }
+    // Nothing ran, so nothing can be reported as a per-file tail: every discovered file is listed
+    // with the install hint instead of an invented failure excerpt.
+    const payload = {
+      files: total,
+      passed: 0,
+      failed: total,
+      durationMs: 0,
+      failures: files.map((file) => ({ file: relPath(file), exitCode: 'deps-missing', tail: INSTALL_HINT })),
+    }
     if (json) {
       // Keep stdout pure JSON; the hint still has to be visible somewhere.
       process.stderr.write(INSTALL_HINT + '\n')
@@ -177,7 +191,13 @@ async function main () {
   const passed = total - failed.length
 
   if (json) {
-    process.stdout.write(JSON.stringify({ files: total, passed, failed: failed.length, durationMs }) + '\n')
+    process.stdout.write(JSON.stringify({
+      files: total,
+      passed,
+      failed: failed.length,
+      durationMs,
+      failures: failed.map((r) => ({ file: r.file, exitCode: r.code, tail: r.outputTail })),
+    }) + '\n')
   } else {
     if (failed.length > 0) {
       log('')

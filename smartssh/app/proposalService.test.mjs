@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import { execSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pkg from '@xterm/headless'
 
@@ -19,9 +19,11 @@ import { CASE_IDS, judgeMetrics, parseMetrics, summarise } from '../core/metrics
 const { Terminal } = pkg
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = `${HERE}/../../data`
-const METRICS_PATH = `${DATA_DIR}/metrics.json`
-const BUILDINFO_PATH = `${DATA_DIR}/smartssh-buildinfo.json`
+// join(), not string interpolation: '${HERE}/../../data' becomes a '/'+'\' mixed path on Windows
+// and would put the residue in a different place than the resolver the app uses.
+const DATA_DIR = join(HERE, '..', '..', 'data')
+const METRICS_PATH = join(DATA_DIR, 'metrics.json')
+const BUILDINFO_PATH = join(DATA_DIR, 'smartssh-buildinfo.json')
 
 const write = (term, text) => new Promise(resolve => term.write(text, resolve))
 const PROMPT = '\x1b[32mhermes@srv:~$\x1b[0m '
