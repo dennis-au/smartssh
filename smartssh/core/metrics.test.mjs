@@ -4,13 +4,18 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseMetrics, judgeMetrics, summarise, SCHEMA } from './metrics.mjs'
+import { parseMetrics, judgeMetrics, summarise, countLive, SCHEMA } from './metrics.mjs'
 
 const r = []; const t = (n, f) => { try { f(); r.push(['PASS', n]) } catch (e) { r.push(['FAIL', n + ' :: ' + e.message]) } }
 const BOM = '\uFEFF'
 
+// New contract: every case names its geometry source and records its DPR.
 const okCase = (id, over = {}) => ({
   case: id,
+  measured: false,
+  declared: true,
+  devicePixelRatio: 1.5,
+  dprSource: 'CASE_SPEC',
   window: { wCss: 683, hCss: 512, dpr: 1.5 },
   dockMode: 'rail',
   theme: 'dark',
@@ -31,6 +36,10 @@ const good = {
   schema: SCHEMA,
   build: { version: '1.0.238 · sms.42 · 54869e1', sha256: 'a'.repeat(64), commit: '54869e1' },
   cases: [okCase('683x512'), okCase('911x512', { window: { wCss: 911, hCss: 512, dpr: 1.5 } }), okCase('900-high-split', {
+    measured: true,
+    declared: false,
+    devicePixelRatio: 1,
+    dprSource: 'window.devicePixelRatio',
     window: { wCss: 1280, hCss: 900, dpr: 1 },
     dockMode: 'full',
     chrome: { titlebar: 0, tabs: 38, statusbar: 26 },
@@ -44,14 +53,14 @@ const good = {
 }
 const judge = (m, b) => judgeMetrics(typeof m === 'string' ? parseMetrics(m).metrics : m, b)
 const fails = (m, b) => judge(m, b).filter(x => x.status === 'FAIL')
-const buildInfo = { commit: '54869e1' }
+const buildInfo = { commit: '54869e1', sha256: 'A'.repeat(64) }
 
 t('schema: good file parses and every rule passes', () => {
   const p = parseMetrics(JSON.stringify(good))
   assert.ok(p.metrics, p.error)
   assert.deepStrictEqual(fails(p.metrics, buildInfo), [])
   const s = summarise(judgeMetrics(p.metrics, buildInfo))
-  assert.ok(s.pass > 10 && s.fail === 0, JSON.stringify(s))
+  assert.ok(s.pass > 10 && s.fail === 0 && s.skip === 0, JSON.stringify(s))
 })
 t('BOM-prefixed metrics parse identically', () =>
   assert.deepStrictEqual(parseMetrics(BOM + JSON.stringify(good)).metrics, good))
@@ -60,7 +69,20 @@ t('schema drift fails loudly, not silently', () => {
   assert.strictEqual(parseMetrics(JSON.stringify({ ...good, schema: undefined })).error.includes('schema'), true)
 })
 t('build.commit mismatch is a FAIL (A build numbers cannot sign B exe)', () =>
-  assert.ok(fails(good, { commit: 'deadbee' }).some(f => f.name.includes('build.commit'))))
+  assert.ok(fails(good, { ...buildInfo, commit: 'deadbee' }).some(f => f.name.includes('build.commit'))))
+t('build.sha256 cannot be empty or malformed', () => {
+  for (const sha256 of ['', undefined, 'a'.repeat(63), 'g'.repeat(64)]) {
+    const bad = { ...good, build: { ...good.build, sha256 } }
+    assert.strictEqual(parseMetrics(JSON.stringify(bad)).error,
+      'build.sha256 must be the exe sha256 (64 hex); an empty sha binds the numbers to no binary')
+  }
+})
+t('expected exe hash is compared case-insensitively and mismatch fails', () => {
+  const name = 'metrics build.sha256 matches the exe under test'
+  assert.strictEqual(judge(good, buildInfo).find(x => x.name === name).status, 'PASS')
+  assert.ok(fails(good, { ...buildInfo, sha256: 'b'.repeat(64) }).some(x => x.name === name))
+  assert.strictEqual(judge(good, { commit: buildInfo.commit }).find(x => x.name === name).status, 'SKIPPED')
+})
 t('rows come from the terminal, not from height/cellHeight', () => {
   const bad = JSON.parse(JSON.stringify(good)); bad.cases[0].viewport.rows = 4
   assert.ok(fails(bad, buildInfo).some(f => f.name.includes('683x512 rows')))
@@ -68,6 +90,44 @@ t('rows come from the terminal, not from height/cellHeight', () => {
 t('statusbar hidden + armed state invisible => FAIL', () => {
   const bad = JSON.parse(JSON.stringify(good)); delete bad.cases[0].trustVisible
   assert.ok(fails(bad, buildInfo).some(f => f.name.includes('armed state visible')))
+})
+t('armed cannot be fabricated when trust is watch', () => {
+  const bad = { ...good, cases: [{ ...good.cases[0], trust: 'watch' }, ...good.cases.slice(1)] }
+  assert.ok(fails(bad, buildInfo).some(f => f.name.includes('armed flag is derived from the live trust level')))
+})
+t('visible unarmed watch state passes only with a gate reason', () => {
+  const unarmed = { ...good.cases[0], trust: 'watch', trustVisible: { where: 'tab', armed: false }, gateReason: 'not_armed' }
+  const doc = { ...good, cases: [unarmed, ...good.cases.slice(1)] }
+  assert.deepStrictEqual(fails(doc, buildInfo), [])
+  unarmed.gateReason = ''
+  assert.ok(fails(doc, buildInfo).some(f => f.name.includes('armed flag is derived from the live trust level')))
+})
+t('geometry source must be stated using two complementary boolean fields', () => {
+  for (const flags of [
+    { measured: undefined, declared: undefined }, { measured: true, declared: true },
+    { measured: false, declared: false }, { measured: 'false', declared: true },
+  ]) {
+    const bad = { ...good, cases: [{ ...good.cases[0], ...flags }, ...good.cases.slice(1)] }
+    assert.ok(fails(bad, buildInfo).some(f => f.name.includes('geometry source is stated exactly once')))
+  }
+})
+t('measured and declared cases each require a positive DPR and the right source', () => {
+  for (const [index, fields, rule] of [
+    [2, { devicePixelRatio: 0 }, 'live case carries real devicePixelRatio provenance'],
+    [2, { dprSource: 'CASE_SPEC' }, 'live case carries real devicePixelRatio provenance'],
+    [0, { devicePixelRatio: undefined }, 'declared case is labelled declared'],
+    [0, { dprSource: 'window.devicePixelRatio' }, 'declared case is labelled declared'],
+  ]) {
+    const cases = good.cases.map((c, i) => i === index ? { ...c, ...fields } : c)
+    assert.ok(fails({ ...good, cases }, buildInfo).some(f => f.name.includes(rule)))
+  }
+})
+t('live measurements count only measured:true, not declared cases', () => {
+  assert.strictEqual(countLive(good), 1)
+  assert.strictEqual(countLive({ cases: [null, { measured: 'true' }, { declared: true }] }), 0)
+  assert.deepStrictEqual(judge(good, buildInfo).find(x => x.name === 'live measurements are counted from measured:true only'), {
+    name: 'live measurements are counted from measured:true only', status: 'PASS', detail: '1 live / 2 declared (of 3)',
+  })
 })
 t('collapsed bar that was unmounted or display:none => FAIL', () => {
   const bad = JSON.parse(JSON.stringify(good))

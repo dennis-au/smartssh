@@ -601,9 +601,8 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
     }
 
     /**
-     * UI measurement for SMARTSSH_MEASURE=1. Only the case whose declared window geometry matches
-     * this window is measured for real; the other two keep their declared geometry, so a run never
-     * reports numbers for a window it never had.
+     * UI measurement for SMARTSSH_MEASURE=1. At the current window size only the matching case
+     * can be measured. The others are labelled declared and excluded from the live count.
      */
     private measureSmartSSHCase (caseId: string): any {
         const xterm = (this.frontend as any)?.xterm
@@ -616,8 +615,20 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
             return {}
         }
         const rect = el.getBoundingClientRect()
-        const cellHeightPx = rect.height > 0 && xterm.rows > 0 ? rect.height / xterm.rows : spec.viewport.cellHeightPx
-        return { rows: xterm.rows, cols: xterm.cols, cellHeightPx }
+        if (!(rect.height > 0) || !(xterm.rows > 0)) {
+            return {}
+        }
+        const cellHeightPx = rect.height / xterm.rows
+        return {
+            measured: true,
+            dprSource: 'window.devicePixelRatio',
+            devicePixelRatio: window.devicePixelRatio,
+            window: { wCss: window.innerWidth, hCss: window.innerHeight, dpr: window.devicePixelRatio },
+            rows: xterm.rows,
+            cols: xterm.cols,
+            cellHeightPx,
+            heightPx: rect.height,
+        }
     }
 
     /** Called by the SmartSSH relay when a push supplies the learned prompt token. */

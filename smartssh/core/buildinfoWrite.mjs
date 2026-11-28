@@ -10,12 +10,12 @@
 // the About chip fall back to "dev" fails loudly here instead of silently shipping.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { BASE_RE, BUILD_RE, COMMIT_RE, parseBuildInfo } from './buildinfo.mjs'
+import { BASE_RE, BUILD_RE, COMMIT_RE, SHA256_RE, parseBuildInfo } from './buildinfo.mjs'
 
 export const BUILDINFO_FILE = 'smartssh-buildinfo.json'
 
-/** @returns {{base:string,build:string,commit:string,builtAt?:string}} */
-export function makeBuildInfo ({ version, build, commit, builtAt } = {}) {
+/** @returns {{base:string,build:string,commit:string,builtAt?:string,sha256?:string}} */
+export function makeBuildInfo ({ version, build, commit, builtAt, sha256 } = {}) {
   const base = String(version ?? '').trim()
   // A 'v' prefix means a tag name leaked through instead of the stripped version: reject it rather
   // than let the app fall back to "dev" on a real release.
@@ -26,6 +26,10 @@ export function makeBuildInfo ({ version, build, commit, builtAt } = {}) {
   if (!COMMIT_RE.test(c)) throw new Error(`commit must be 7..40 hex or 'local': ${JSON.stringify(c)}`)
   const out = { base, build: b, commit: c }
   if (typeof builtAt === 'string' && builtAt.length <= 40) out.builtAt = builtAt
+  if (sha256 !== undefined) {
+    if (typeof sha256 !== 'string' || !SHA256_RE.test(sha256)) throw new Error('sha256 must be 64 hex')
+    out.sha256 = sha256
+  }
   return out
 }
 

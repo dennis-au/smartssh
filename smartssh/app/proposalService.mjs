@@ -28,6 +28,7 @@ import { writeMetrics } from '../core/metricsWriter.mjs'
 import { CASE_IDS } from '../core/metrics.mjs'
 import { isMeasureEnabled, metricsBaseDir, resolveMetricsPath } from './metricsPath.mjs'
 import { parseBuildInfo, formatVersion } from '../core/buildinfo.mjs'
+import { isValidSha256, readExeSha } from './exeSha.mjs'
 
 export const DEFAULT_INTERVAL_MS = 120
 export const DEFAULT_QUIET_MS = 150
@@ -76,17 +77,35 @@ export const CASE_SPEC = {
   },
 }
 
+const isStr = v => typeof v === 'string' && v.length > 0
+
 /**
  * Build one measurement case for metricsWriter/`metrics-check.mjs`.
  * `reading` carries whatever the host really measured; anything it omits falls back to the
- * declared case geometry. `trustVisible.armed` is `true` only because the service itself is
- * armed (a trusted token); an unarmed service never records a measurement.
+ * declared case geometry. Armed comes from the live token state; an unarmed run records
+ * `armed: false` plus the gate reason that explains it.
  * @param {string} caseId
  * @param {object} [reading]
  */
 export function buildMeasurement (caseId, reading = {}) {
   const spec = CASE_SPEC[caseId]
   if (!spec) throw new Error(`unknown case id: ${String(caseId)}`)
+  const { armed } = reading
+  if (typeof armed !== 'boolean') {
+    throw new Error('buildMeasurement requires the live armed state (reading.armed must be a boolean); armed is never assumed')
+  }
+  if (!armed && !isStr(reading.gateReason)) {
+    throw new Error('an unarmed measurement must carry reading.gateReason')
+  }
+
+  const measured = reading.measured === true
+  if (measured && !(Number.isInteger(reading.rows) && Number.isFinite(reading.devicePixelRatio) && reading.devicePixelRatio > 0)) {
+    throw new Error('a measured case must carry devicePixelRatio and dprSource')
+  }
+  const devicePixelRatio = measured ? reading.devicePixelRatio : spec.window.dpr
+  const dprSource = measured
+    ? (isStr(reading.dprSource) ? reading.dprSource : 'window.devicePixelRatio')
+    : 'CASE_SPEC'
   const rows = Number.isInteger(reading.rows) ? reading.rows : spec.viewport.rows
   const cellHeightPx = Number.isFinite(reading.cellHeightPx) ? reading.cellHeightPx : spec.viewport.cellHeightPx
   const heightPx = Number.isFinite(reading.heightPx)
@@ -94,7 +113,11 @@ export function buildMeasurement (caseId, reading = {}) {
     : (rows === spec.viewport.rows ? spec.viewport.heightPx : rows * cellHeightPx)
   return {
     case: caseId,
-    window: { ...spec.window, ...reading.window },
+    measured,
+    declared: !measured,
+    devicePixelRatio,
+    dprSource,
+    window: { ...spec.window, ...reading.window, dpr: devicePixelRatio },
     dockMode: reading.dockMode ?? spec.dockMode,
     theme: reading.theme ?? spec.theme,
     chrome: { ...spec.chrome, ...reading.chrome },
@@ -102,7 +125,7 @@ export function buildMeasurement (caseId, reading = {}) {
     bar: { state: reading.state, mounted: true, heightPx: Number.isFinite(reading.barHeightPx) ? reading.barHeightPx : 76 },
     barCollapsed: { afterMs: 8000, heightPx: 0, stillMounted: true, display: 'flex' },
     panes: reading.panes ?? spec.panes,
-    trustVisible: { where: reading.trustWhere ?? spec.trustWhere, armed: true },
+    trustVisible: { where: reading.trustWhere ?? spec.trustWhere, armed, gateReason: reading.gateReason ?? '' },
   }
 }
 
@@ -112,7 +135,7 @@ export function buildMeasurement (caseId, reading = {}) {
  * electron-builder copies `extras/` to `<exe dir>\resources\extras` (see electron-builder.yml
  * `extraResources`), which is exactly where windows-checklist.ps1 reads the identity from. The
  * cwd-relative dev paths stay last so `yarn start` from a checkout keeps working. A metrics file
- * with no build.commit is rejected by metrics-check, so this lookup decides PASS vs "invalid".
+ * with no build identity is rejected by metrics-check, so this lookup decides PASS vs "invalid".
  * @param {Record<string, string|undefined>} [env]
  * @param {string} [execPath]
  * @returns {string[]}
@@ -132,14 +155,24 @@ export function buildInfoPaths (env = process.env, execPath = process.execPath) 
   return out
 }
 
-/** Read the real build identity (CI/local build writes extras/smartssh-buildinfo.json). */
-export function readBuildInfo (paths = buildInfoPaths()) {
+/** Read buildinfo and bind it to the executable this instance is running from. */
+export function readBuildInfo (paths = buildInfoPaths(), deps = {}) {
+  const injected = isValidSha256(deps.exeSha) ? deps.exeSha : ''
+  const defaultCompute = () => readExeSha(deps.env ?? process.env, deps.execPath ?? process.execPath)
   for (const p of paths) {
     if (!p) continue
-    try {
-      const info = parseBuildInfo(readFileSync(p, 'utf8'))
-      if (info) return { version: formatVersion(info), sha256: '', commit: info.commit }
-    } catch { /* keep looking: a missing buildinfo is 'dev', never a guess */ }
+    let info
+    try { info = parseBuildInfo(readFileSync(p, 'utf8')) } catch { continue }
+    if (!info) continue
+
+    let sha = isValidSha256(info.sha256) ? info.sha256 : injected
+    if (!sha) {
+      try {
+        const computed = (deps.computeExeSha ?? defaultCompute)()
+        if (isValidSha256(computed)) sha = String(computed).toUpperCase()
+      } catch { /* unreadable exe: no build identity */ }
+    }
+    return sha ? { version: formatVersion(info), sha256: sha, commit: info.commit } : null
   }
   return null
 }
@@ -477,14 +510,18 @@ export function createProposalService (options = {}) {
 
   // ---------------------------------------------------------------- metrics
   const measurements = new Map()
+  let last = null
 
   function recordMeasurement (model) {
-    measurements.set(model.state, model)
+    last = model
     if (typeof options.measurement === 'function') {
+      const isArmed = armed()
       for (const id of CASE_IDS) {
         try {
           const reading = options.measurement(id, { state: model.state, model, gate: model.gate }) ?? {}
-          measurements.set(`case:${id}`, buildMeasurement(id, { ...measurementOptions, ...reading, state: model.state }))
+          measurements.set(id, buildMeasurement(id, {
+            ...measurementOptions, ...reading, state: model.state, armed: isArmed, gateReason: model.gate.reason,
+          }))
         } catch (error) {
           metricsError = error
         }
@@ -495,23 +532,28 @@ export function createProposalService (options = {}) {
   function metricsDocument () {
     const build = options.build ?? readBuildInfo()
     if (!build) throw new Error('UI metrics need build identity: pass build, or ship resources/extras/smartssh-buildinfo.json next to the exe')
-    const last = [...measurements.values()].filter(v => v && v.state).pop()
     const gate = last?.gate ?? lastGate
-    const decorate = (measured) => ({
-      ...measured,
+    const isArmed = armed()
+    const trust = options.trust ?? (isArmed ? 'propose' : 'watch')
+    const decorate = (measurement) => ({
+      ...measurement,
       gate: gate.gate,
       gateReason: gate.reason,
-      trust: options.trust ?? (armed() ? 'propose' : 'watch'),
+      trust,
+      // Cached geometry may predate a token change; use the document's live trust snapshot.
+      trustVisible: { ...measurement.trustVisible, armed: isArmed, gateReason: gate.reason },
       autoRun,
       barMountedWhenNoProposal: false,
     })
     const cases = CASE_IDS.map((id) => {
-      const measured = measurements.get(`case:${id}`)
-      if (measured) return decorate(measured)
+      const measurement = measurements.get(id)
+      if (measurement) return decorate(measurement)
       const reading = typeof options.measurement === 'function'
-        ? options.measurement(id, { state: last?.state ?? 'proposed', model: last ?? null, gate: lastGate }) ?? {}
+        ? options.measurement(id, { state: last?.state ?? 'proposed', model: last ?? null, gate }) ?? {}
         : {}
-      return decorate(buildMeasurement(id, { ...measurementOptions, ...reading, state: last?.state ?? 'proposed' }))
+      return decorate(buildMeasurement(id, {
+        ...measurementOptions, ...reading, state: last?.state ?? 'proposed', armed: isArmed, gateReason: gate.reason,
+      }))
     })
     return JSON.parse(writeMetrics({ build, cases }))
   }

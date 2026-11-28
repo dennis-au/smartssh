@@ -3,6 +3,12 @@
 版本號 = SmartSSH base version（`.github/workflows/smartssh-win.yml` 的 `SMARTSSH_VERSION`）。
 顯示用版本另加 build 與 commit，格式見 [README.md](README.md#版本)。
 
+## [Unreleased]
+
+- UI metrics 必須記錄 `build.sha256`；Windows checklist 以受測 exe 的 SHA-256 比對。
+- `trustVisible.armed` 取自即時 token 狀態，未 armed 時須附上 `gateReason`，不再一律寫 `true`。
+- 每個 case 標示 `measured` 或 `declared` 並記錄 DPR 來源；實測覆蓋率不計宣告的幾何。
+
 ## [1.0.238] — 2026-11-27
 
 ### 提案閘門與 bar

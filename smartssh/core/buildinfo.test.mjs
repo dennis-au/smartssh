@@ -11,6 +11,17 @@ t('BOM + surrounding whitespace still parses', () =>
   assert.deepStrictEqual(parseBuildInfo('\n' + BOM + good + '\n'), parseBuildInfo(good)))
 t('formatVersion gives the three-part chip', () =>
   assert.strictEqual(formatVersion(parseBuildInfo(BOM + good)), '1.0.238 · sms.42 · 54869e1'))
+t('optional valid sha256 is kept verbatim and does not change the version chip', () => {
+  const sha256 = 'aB0123456789cDeF'.repeat(4)
+  const info = parseBuildInfo(JSON.stringify({ ...JSON.parse(good), sha256 }))
+  assert.strictEqual(info.sha256, sha256)
+  assert.strictEqual(formatVersion(info), formatVersion(parseBuildInfo(good)))
+})
+t('invalid optional sha256 is omitted so the caller can hash the executable', () => {
+  for (const sha256 of ['', 'g'.repeat(64), ['a'.repeat(64)], null]) {
+    assert.deepStrictEqual(parseBuildInfo(JSON.stringify({ ...JSON.parse(good), sha256 })), parseBuildInfo(good))
+  }
+})
 t('bad JSON => null (UI shows dev, never a fake string)', () => {
   assert.strictEqual(parseBuildInfo('{oops'), null)
   assert.strictEqual(parseBuildInfo(''), null)
