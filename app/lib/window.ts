@@ -7,6 +7,7 @@ import { enable as enableRemote } from '@electron/remote/main'
 import * as path from 'path'
 import macOSRelease from 'macos-release'
 import { compare as compareVersions } from 'compare-versions'
+import { measurementWindow } from '../../smartssh/app/measureWindow.mjs'
 
 import type { Application } from './app'
 import { parseArgs } from './cli'
@@ -55,7 +56,8 @@ export class Window {
         this.windowConfig = new ElectronConfig({ name: 'window' })
         this.windowBounds = this.windowConfig.get('windowBoundaries')
 
-        const maximized = this.windowConfig.get('maximized')
+        const measuring = measurementWindow(process.env)
+        const maximized = (measuring && measuring.width && measuring.height) ? false : this.windowConfig.get('maximized')
         const bwOptions: BrowserWindowConstructorOptions = {
             width: 800,
             height: 600,
@@ -86,6 +88,16 @@ export class Window {
                 bwOptions.x = closestDisplay.bounds.width / 2 - bwOptions.width! / 2
                 bwOptions.y = closestDisplay.bounds.height / 2 - bwOptions.height! / 2
             }
+        }
+
+        if (measuring && typeof measuring.width === 'number' && typeof measuring.height === 'number') {
+            bwOptions.width = measuring.width
+            bwOptions.height = measuring.height
+            bwOptions.useContentSize = true
+            bwOptions.maximizable = false
+        }
+        if (measuring?.note) {
+            console.warn('SmartSSH measurement: ' + measuring.note)
         }
 
         if (this.configStore.appearance?.frame === 'native') {

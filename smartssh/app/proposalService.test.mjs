@@ -13,9 +13,9 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pkg from '@xterm/headless'
 
-import { createProposalService, buildMeasurement, CASE_SPEC } from './proposalService.mjs'
+import { createProposalService, buildMeasurement } from './proposalService.mjs'
 import { STATES } from '../core/barModel.mjs'
-import { CASE_IDS, judgeMetrics, parseMetrics, summarise } from '../core/metrics.mjs'
+import { CASE_IDS, countLive, judgeMetrics, parseMetrics, summarise } from '../core/metrics.mjs'
 
 const { Terminal } = pkg
 
@@ -487,7 +487,10 @@ test('U. SMARTSSH_MEASURE=1 (app default wiring) writes data/metrics.json for th
     const { service, clock } = makeService(term, {
       service: {
         build,
-        measurement: caseId => ({ rows: CASE_SPEC[caseId].viewport.rows }),
+        // A passing document needs at least one live case backed by a runtime viewport.
+        measurement: caseId => caseId === '683x512' ? {
+          measuredViewport: { wCss: 683, hCss: 512, devicePixelRatio: 1.25, rows: 24, cols: 78, heightPx: 432, cellHeightPx: 18 },
+        } : {},
       },
     })
     service.tick()
@@ -515,6 +518,8 @@ test('U. SMARTSSH_MEASURE=1 (app default wiring) writes data/metrics.json for th
     assert.equal(c.autoRun, 'off')
   }
   assert.ok(parsed.metrics.cases.every(c => c.gate === 'clean'))
+  assert.equal(countLive(parsed.metrics), 1)
+  assert.equal(parsed.metrics.cases.find(c => c.case === '683x512').measured, true)
 
   // the same judge core/metrics-check.mjs runs, with build identity supplied
   const results = judgeMetrics(parsed.metrics, { commit, sha256: build.sha256 })
@@ -531,17 +536,23 @@ test('V. measurement helpers require explicit armed and live geometry provenance
   // Arming is no longer assumed and an unarmed case must explain why.
   assert.throws(() => buildMeasurement('683x512'), /requires the live armed state/)
   assert.throws(() => buildMeasurement('683x512', { armed: false }), /must carry reading.gateReason/)
-  assert.throws(() => buildMeasurement('683x512', { armed: true, measured: true, rows: 6 }), /must carry devicePixelRatio and dprSource/)
-  const m = buildMeasurement('683x512', {
-    armed: true, measured: true, devicePixelRatio: 2, dprSource: 'window.devicePixelRatio', rows: 6, cellHeightPx: 20,
-  })
+  // Only a complete viewport matching the case is live; a flag alone is declared with a note.
+  const flagOnly = buildMeasurement('683x512', { armed: true, measured: true })
+  assert.equal(flagOnly.measured, false)
+  assert.match(flagOnly.measurementNote, /measured:true alone is not a measurement/)
+  const measuredViewport = { wCss: 683, hCss: 512, devicePixelRatio: 2, rows: 6, cols: 78, cellHeightPx: 20, heightPx: 120 }
+  const m = buildMeasurement('683x512', { armed: true, measuredViewport })
   assert.equal(m.viewport.rows, 6)
   assert.equal(m.viewport.heightPx, 120)
   assert.equal(m.trustVisible.armed, true)
   assert.equal(m.measured, true)
   assert.equal(m.declared, false)
   assert.equal(m.devicePixelRatio, 2)
-  assert.equal(m.dprSource, 'window.devicePixelRatio')
+  assert.equal(m.dprSource, 'runtime')
+  assert.deepEqual(m.window, { wCss: 683, hCss: 512, dpr: 2 })
+  const mismatch = buildMeasurement('683x512', { armed: true, measuredViewport: { ...measuredViewport, wCss: 800, hCss: 600 } })
+  assert.equal(mismatch.measured, false)
+  assert.equal(mismatch.declared, true)
 })
 
 test('W. flushing cached geometry after token removal still records the live armed and trust levels', async () => {

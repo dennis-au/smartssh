@@ -19,9 +19,9 @@ function flush (token, trust) {
   const svc = createProposalService({
     build, token, trust, metrics: true, metricsPath, intervalMs: 0,
     buffer: { rows: 1, cursorX: 3, getLine: () => ({ translateToString: () => 'tok' }) },
+    // Only the case with a complete matching runtime viewport counts as live.
     measurement: id => id !== liveId ? {} : {
-      measured: true, devicePixelRatio: 1, dprSource: 'window.devicePixelRatio',
-      window: { wCss: 1280, hCss: 900, dpr: 1 }, rows: 20, cols: 80, cellHeightPx: 18, heightPx: 360,
+      measuredViewport: { wCss: 1280, hCss: 900, devicePixelRatio: 1, rows: 20, cols: 80, cellHeightPx: 18, heightPx: 360 },
     },
   })
   svc.tick()
@@ -52,7 +52,7 @@ try {
     assertLine(doc, `${c.case} armed flag is derived from the live trust level`, 'PASS')
     const live = c.case === liveId
     assert.deepEqual([c.measured, c.declared, c.devicePixelRatio, c.dprSource],
-      [live, !live, live ? 1 : 1.5, live ? 'window.devicePixelRatio' : 'CASE_SPEC'])
+      [live, !live, live ? 1 : 1.5, live ? 'runtime' : 'CASE_SPEC'])
   }
   const judged = judgeMetrics(doc, build)
   assert.deepEqual(judged.filter(r => r.status !== 'PASS'), [])

@@ -15,7 +15,7 @@ import { TerminalDecorator } from './decorator'
 import { SearchPanelComponent } from '../components/searchPanel.component'
 import { MultifocusService } from '../services/multifocus.service'
 import { getTerminalBackgroundColor } from '../helpers'
-import { createProposalService, CASE_SPEC } from '../../../smartssh/app/proposalService.mjs'
+import { createProposalService } from '../../../smartssh/app/proposalService.mjs'
 import { isMeasureEnabled } from '../../../smartssh/app/metricsPath.mjs'
 import { createRelayBridgeFromEnv } from '../../../smartssh/app/relayBridge.mjs'
 
@@ -600,34 +600,31 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
         }
     }
 
-    /**
-     * UI measurement for SMARTSSH_MEASURE=1. At the current window size only the matching case
-     * can be measured. The others are labelled declared and excluded from the live count.
-     */
-    private measureSmartSSHCase (caseId: string): any {
+    /** Read the terminal's current viewport for SMARTSSH_MEASURE=1. */
+    private measureSmartSSHCase (_caseId: string): any {
         const xterm = (this.frontend as any)?.xterm
         const el: HTMLElement|undefined = this.content?.nativeElement
-        const spec = (CASE_SPEC as any)[caseId]
-        if (!xterm || !el || !spec || typeof window === 'undefined') {
-            return {}
-        }
-        if (Math.abs(window.innerWidth - spec.window.wCss) > 2 || Math.abs(window.innerHeight - spec.window.hCss) > 2) {
+        if (!xterm || !el || typeof window === 'undefined') {
             return {}
         }
         const rect = el.getBoundingClientRect()
-        if (!(rect.height > 0) || !(xterm.rows > 0)) {
+        const { devicePixelRatio } = window
+        if (!(rect.height > 0) || !(xterm.rows > 0) || !(xterm.cols > 0) ||
+            !Number.isFinite(devicePixelRatio) || devicePixelRatio <= 0) {
             return {}
         }
-        const cellHeightPx = rect.height / xterm.rows
+        // `caseId` is only a label here: buildMeasurement() decides whether this real viewport IS
+        // that case, and falls back to a declared CASE_SPEC value (with a note) when it is not.
         return {
-            measured: true,
-            dprSource: 'window.devicePixelRatio',
-            devicePixelRatio: window.devicePixelRatio,
-            window: { wCss: window.innerWidth, hCss: window.innerHeight, dpr: window.devicePixelRatio },
-            rows: xterm.rows,
-            cols: xterm.cols,
-            cellHeightPx,
-            heightPx: rect.height,
+            measuredViewport: {
+                wCss: window.innerWidth,
+                hCss: window.innerHeight,
+                devicePixelRatio,
+                rows: xterm.rows,
+                cols: xterm.cols,
+                cellHeightPx: rect.height / xterm.rows,
+                heightPx: rect.height,
+            },
         }
     }
 

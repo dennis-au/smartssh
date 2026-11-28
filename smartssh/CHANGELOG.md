@@ -5,6 +5,24 @@
 
 ## [未發佈]
 
+### 真量測唔可以歸零（metrics 誠實化）
+- writer 只有收到 runtime 交出的真實 viewport（`measuredViewport`：`wCss`/`hCss`/DPR/`rows`/`cols`/
+  `cellHeightPx`/`heightPx`，而且同該 case 幾何相差 ≤2 CSS px）才會標 `measured:true` /
+  `declared:false` / `dprSource:"runtime"`；拿唔到、唔齊或唔吻合就 fallback `measured:false` +
+  `dprSource:"CASE_SPEC"`，並在 `measurementNote` 寫明原因，冇得再「宣告」成實測 —
+  `smartssh/app/proposalService.mjs`
+- 量測模式下視窗本身就係 case 幾何（預設 683×512，可用 `SMARTSSH_MEASURE_CASE` 揀第二個 case），
+  renderer 只交真實讀數，匹配與否由 writer 判 — `smartssh/app/measureWindow.mjs`、`app/lib/window.ts`、
+  `tabby-terminal/src/api/baseTerminalTab.component.ts`
+- judge：`measured:true` 數量為 0 直接 FAIL（錯誤字串含 `no live measurement`），`metrics-check.mjs`
+  另印 `JUDGE FAIL:` 原因行；`0/3 declared` 唔可能再出現 `ALL CHECKS PASSED` —
+  `smartssh/core/metrics.mjs`、`smartssh/core/metrics-check.mjs`
+- Windows checklist：judge 失敗時逐條印出原因（`FAIL     UI metrics  <reason>`），唔會只印 pass 數 —
+  `smartssh/verify/judgeFailure.ps1`、`smartssh/verify/windows-checklist.ps1`
+- 契約測試：writer 真量測與 fallback、judge 對 0 真量測必須 FAIL、declared 冒充 measured 必須 FAIL、
+  checklist 原因輸出（有 PowerShell 時真跑，冇就 SKIPPED 講原因）—
+  `smartssh/verify/live-measure.test.mjs`、`smartssh/verify/checklist-judge-reason.test.mjs`
+
 ### 證據綁定與誠實標記（metrics）
 - UI metrics 必須記錄 `build.sha256`；Windows checklist 以受測 exe 的 SHA-256 比對。
 - `trustVisible.armed` 取自即時 token 狀態，未 armed 時須附上 `gateReason`，不再一律寫 `true`。
