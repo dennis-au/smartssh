@@ -147,7 +147,7 @@ export function createRelayClient ({ baseUrl, token, fetchImpl, now, timeoutMs }
 
   /**
    * Push the terminal window. `input` is the buildContextPush() input plus `session_id`:
-   * `{ session_id, trigger, tab_id, host, lines, range: {fromLine, toLine, at?}, enabledRules? }`.
+   * `{ session_id, trigger, tab_id, host, lines, range: {fromLine, toLine, at?}, enabledRules?, prompt_sample? }`.
    */
   async function pushContext (input = {}) {
     if (!nonempty(input.session_id)) {
@@ -179,9 +179,30 @@ export function createRelayClient ({ baseUrl, token, fetchImpl, now, timeoutMs }
     if (payload.line_count !== payload.text.split('\n').length) {
       throw new RelayError('context_line_mismatch', { relayCode: 'context_line_mismatch' })
     }
+    const { prompt_sample } = input
     const { body } = await send('POST', '/v1/context.push', {
-      body: { ...payload, session_id: input.session_id },
+      body: {
+        ...payload,
+        session_id: input.session_id,
+        ...(typeof prompt_sample === 'string' && prompt_sample.length ? { prompt_sample } : {}),
+      },
     })
+    return body
+  }
+
+  /** POST /v1/tabs -> registers this tab with the relay (no terminal text). */
+  async function registerTab ({ tabId, sessionId, host } = {}) {
+    if (!nonempty(tabId) || !nonempty(sessionId) || !nonempty(host)) {
+      throw new RelayError('bad_request', { relayCode: 'tab_fields_missing' })
+    }
+    const { body } = await send('POST', '/v1/tabs', { body: { tab_id: tabId, session_id: sessionId, host } })
+    return body
+  }
+
+  /** GET /v1/inbox/:tab_id -> {tab_id, prompt: {token, trusted, samples}|null, items: [...]} */
+  async function inbox (tabId) {
+    if (!nonempty(tabId)) throw new RelayError('bad_request', { relayCode: 'tab_id_missing' })
+    const { body } = await send('GET', `/v1/inbox/${encodeURIComponent(tabId)}`)
     return body
   }
 
@@ -222,6 +243,8 @@ export function createRelayClient ({ baseUrl, token, fetchImpl, now, timeoutMs }
 
   return {
     pushContext,
+    registerTab,
+    inbox,
     getProposal,
     rejectProposal,
     dispatch,

@@ -18,6 +18,8 @@ import { getTerminalBackgroundColor } from '../helpers'
 import { createProposalService } from '../../../smartssh/app/proposalService.mjs'
 import { isMeasureEnabled } from '../../../smartssh/app/metricsPath.mjs'
 import { createRelayBridgeFromEnv } from '../../../smartssh/app/relayBridge.mjs'
+import { createRelayWork } from '../../../smartssh/app/relayWork.mjs'
+import { promptSample } from '../../../smartssh/core/promptSample.mjs'
 
 
 const INACTIVE_TAB_UNLOAD_DELAY = 1000 * 30
@@ -85,6 +87,13 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
      */
     smartsshProposalToken = ''
     smartsshProposalTokenTrusted = false
+
+    /** Mirrors the live trust level for the tab chip. Armed = the relay verified the prompt token. */
+    smartsshArmed = false
+    /** Relay work loop: the only inbound channel this tab has (context requests + proposals). */
+    private smartsshRelayWork: any = null
+    /** A line was submitted since the last prompt sample: samples are only taken right after Enter. */
+    private smartsshFeedSinceSample = false
 
     /** The only writer of `smartsshProposal`; see startSmartSSHProposal(). */
     private smartsshProposalService: any = null
@@ -558,6 +567,7 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
         this.smartsshProposalUnsubscribe = this.smartsshProposalService.subscribe((model: any) => {
             this.zone.run(() => {
                 this.smartsshProposal = model
+                this.smartsshArmed = this.smartsshProposalService?.armed() === true
             })
         })
         // Relay transport for the same model events. A missing SMARTSSH_RELAY_URL/RELAY_TOKEN, or
@@ -577,6 +587,34 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
             this.smartsshRelayBridge = null
         }
         this.smartsshProposalService.start()
+        try {
+            const relayClient = (this.smartsshRelayBridge as any)?.client
+            if (relayClient) {
+                this.smartsshRelayWork = createRelayWork({
+                    client: relayClient,
+                    service: this.smartsshProposalService,
+                    tabId: () => this.smartsshRelayContext.tabId || this.smartsshRelayLocalId,
+                    sessionId: () => this.smartsshRelayContext.sessionId || this.smartsshRelayLocalId,
+                    host: () => this.smartSSHHost(),
+                    capture: () => this.smartSSHWindow(),
+                    sample: () => this.takeSmartSSHPromptSample(),
+                    // ONE writer: the relay's echo reaches the app through setSmartSSHProposalToken().
+                    apply: (token: string, trusted: boolean) => this.setSmartSSHProposalToken(token, trusted),
+                    onProposal: (item: any) => this.onSmartSSHRelayProposal(item),
+                    pollMs: 1000,
+                    onEvent: (event: any) => {
+                        if (event?.type === 'prompt' || event?.type === 'push') {
+                            this.zone.run(() => {
+                                this.smartsshArmed = this.smartsshProposalService?.armed() === true
+                            })
+                        }
+                    },
+                })
+                this.smartsshRelayWork.start()
+            }
+        } catch (error) {
+            this.logger.warn('SmartSSH relay work failed to start', error)
+        }
     }
 
     /** The injectable buffer reader: a live view over this tab's xterm buffer. */
@@ -628,6 +666,82 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
         }
     }
 
+    /** The visible window as push lines; buffer line 1 is `fromLine`. */
+    private smartSSHWindow (): {lines: string[], fromLine: number, toLine: number}|null {
+        const xterm = (this.frontend as any)?.xterm
+        if (!xterm) {
+            return null
+        }
+        const active = xterm.buffer.active
+        const baseY = active.baseY
+        const rows = xterm.rows
+        const lines: string[] = []
+        for (let i = 0; i < rows; i++) {
+            const line = active.getLine(baseY + i)
+            lines.push(typeof line?.translateToString === 'function' ? line.translateToString(true) : '')
+        }
+        return { lines, fromLine: baseY + 1, toLine: baseY + rows }
+    }
+
+    /** A tab that is not an SSH session still needs a host string for the push contract. */
+    private smartSSHHost (): string {
+        const host = (this.profile as any)?.options?.host
+        return typeof host === 'string' && host.length > 0 ? host : 'local'
+    }
+
+    /**
+     * The prompt sample, taken only right after a submitted line, from the cursor's own row, and only
+     * ever the terminator (+ its trailing spaces). Text after the cursor means it is not a prompt.
+     */
+    private takeSmartSSHPromptSample (): string|null {
+        if (!this.smartsshFeedSinceSample) {
+            return null
+        }
+        const xterm = (this.frontend as any)?.xterm
+        if (!xterm) {
+            return null
+        }
+        const active = xterm.buffer.active
+        const line = active.getLine(active.baseY + active.cursorY)
+        if (!line) {
+            return null
+        }
+        const cursorX = active.cursorX
+        let prefix = ''
+        let tail = ''
+        for (let col = 0; col < xterm.cols; col++) {
+            const cell: any = line.getCell(col)
+            const chars = cell && typeof cell.getChars === 'function' ? cell.getChars() : ''
+            if (col < cursorX) {
+                prefix += chars
+            } else {
+                tail += chars
+            }
+        }
+        const { token } = promptSample({
+            prefix,
+            tail,
+            altScreen: active.type === 'alternate',
+            selection: !!this.frontend?.getSelection?.(),
+            scrolled: active.viewportY !== active.baseY,
+        })
+        if (!token) {
+            return null
+        }
+        this.smartsshFeedSinceSample = false
+        return token
+    }
+
+    /** A proposal delivered by the relay: mount the bar through the app's own entry point. */
+    private onSmartSSHRelayProposal (item: any): void {
+        this.setSmartSSHRelayContext({
+            proposalId: item?.proposal_id,
+            tabId: this.smartsshRelayContext.tabId || this.smartsshRelayLocalId,
+            sessionId: this.smartsshRelayContext.sessionId || this.smartsshRelayLocalId,
+        })
+        this.proposeSmartSSHCommand(item.command, item.risk, item.why ?? '', item.confirm_expected)
+    }
+
     /** Called by the SmartSSH relay when a push supplies the learned prompt token. */
     setSmartSSHProposalToken (token: string, trusted = false): void {
         this.smartsshProposalToken = token
@@ -670,6 +784,10 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
     }
 
     protected stopSmartSSHProposal (): void {
+        this.smartsshRelayWork?.stop()
+        this.smartsshRelayWork = null
+        this.smartsshArmed = false
+        this.smartsshFeedSinceSample = false
         this.smartsshRelayBridge?.stop()
         this.smartsshRelayBridge = null
         this.smartsshProposalUnsubscribe?.()
@@ -700,6 +818,7 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
         // like it never started and a proposal could be offered while output is still coming.
         if (this.smartsshProposalService && (data.includes(0x0d) || data.includes(0x0a))) {
             this.smartsshProposalService.noteFeed()
+            this.smartsshFeedSinceSample = true
         }
         this.session?.feedFromTerminal(data)
         if (this.config.store.terminal.scrollOnInput && !data.equals(OSC_FOCUS_IN) && !data.equals(OSC_FOCUS_OUT)) {

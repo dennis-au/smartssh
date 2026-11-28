@@ -43,14 +43,19 @@ export function createRelay ({ store = createStore() } = {}) {
         return
       }
       const tab = /^\/v1\/tabs\/([^/]+)\/context$/.exec(path)
+      const inbox = /^\/v1\/inbox\/([^/]+)$/.exec(path)
       const proposal = /^\/v1\/proposal\/([^/]+)$/.exec(path)
       const reject = /^\/v1\/proposal\/([^/]+)\/reject$/.exec(path)
+      if (req.method === 'GET' && path === '/v1/tabs') return send(res, store.listTabs())
       if (req.method === 'GET' && tab) return send(res, store.getContext(tab[1]))
+      if (req.method === 'GET' && inbox) return send(res, store.inbox(inbox[1]))
       if (req.method === 'GET' && proposal) return send(res, store.getProposal(proposal[1]))
 
       if (req.method === 'POST') {
         let handle
-        if (path === '/v1/context.push') handle = store.pushContext
+        if (path === '/v1/tabs') handle = store.registerTab
+        else if (path === '/v1/context.push') handle = store.pushContext
+        else if (path === '/v1/context.request') handle = store.createContextRequest
         else if (path === '/v1/proposal') handle = store.createProposal
         else if (reject) handle = body => store.reject(reject[1], body)
         else if (path === '/v1/command.dispatch') handle = body => store.dispatch(body, req.headers['idempotency-key'])

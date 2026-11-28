@@ -37,6 +37,26 @@
         height: $toolbarHeight;
     }
 
+    > .smartssh-trust {
+        position: absolute;
+        top: 6px;
+        right: 10px;
+        z-index: 5;
+        padding: 1px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        line-height: 16px;
+        pointer-events: none;
+        border: 1px solid var(--theme-fg-more-2);
+        background: var(--theme-bg-more-2);
+        color: var(--theme-fg-more-2);
+
+        &.armed {
+            border-color: var(--theme-green, #4ade80);
+            color: var(--theme-green, #4ade80);
+        }
+    }
+
     &.toolbar-revealed, &.toolbar-pinned {
         > terminal-toolbar {
             opacity: 1;

@@ -10,6 +10,12 @@ search-panel(
 )
 
 smartssh-bar(*ngIf='smartsshProposal', [model]='smartsshProposal')
+.smartssh-trust(
+    [attr.data-smartssh-armed]='smartsshArmed ? "true" : "false"',
+    [attr.data-smartssh-trust]='smartsshArmed ? "readonly_auto" : "off"',
+    [class.armed]='smartsshArmed',
+    title='SmartSSH 信任狀態'
+) {{ smartsshArmed ? '唯讀自動 · 已武裝' : '信任：關' }}
 
 button.btn.btn-sm.btn-link.toolbar-pin-button(
     *ngIf='enableToolbar && !pinToolbar',
