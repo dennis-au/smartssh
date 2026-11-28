@@ -1,0 +1,16 @@
+{
+    "run":  30,
+    "commit":  "7c274917e232af631b3926fc73ac3a9cfd0a5706",
+    "status":  "cancelled",
+    "steps":  {
+                  "install":  "cancelled",
+                  "tests":  "skipped",
+                  "webpack":  "skipped",
+                  "buildinfo":  "skipped",
+                  "portable":  "skipped",
+                  "setup":  "skipped",
+                  "hash":  "skipped"
+              },
+    "sha256":  "",
+    "exe":  ""
+}
