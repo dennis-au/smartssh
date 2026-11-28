@@ -267,6 +267,40 @@ function validateWorkflow (doc) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// 5. The NSIS include itself — a `File` that points at an asset this repo does not ship aborts
+//    makensis and no setup.exe exists at all. That is exactly how the first real assembly attempt
+//    failed: build/installer.nsh (inherited from upstream Tabby) hard-references
+//    build/vc_redist.exe, which is deliberately absent — smartssh must not bundle a Microsoft
+//    binary (smartssh/docs/vcredist-decision.md, option A). The include therefore keeps the
+//    upstream convenience only when an operator drops the file in, and skips it otherwise.
+// ---------------------------------------------------------------------------------------------
+const NSH_PATH = path.join(REPO_ROOT, 'build', 'installer.nsh')
+
+/** NSIS comments start at `;` (whole line or after whitespace). Prose about a file is not a reference. */
+const nsisCode = (text) => text.split(/\r?\n/).map((l) => l.replace(/(^|\s);.*$/, '$1')).join('\n')
+
+function validateInstallerNsh (text) {
+    const problems = []
+    const add = (m) => problems.push(m)
+    const code = nsisCode(text)
+    if (!/!macro\s+customInstall/.test(code)) {
+        add('build/installer.nsh has no customInstall macro — electron-builder includes this file for the installer, so its absence means the include was silently dropped')
+    }
+    // Every `File "...${BUILD_RESOURCES_DIR}\<name>"` must be satisfiable at build time: `File` is a
+    // compile-time directive, so makensis resolves it while compiling and a missing asset aborts the
+    // whole installer. /nonfatal is NOT an escape hatch — electron-builder compiles with -WX (warnings
+    // as errors), so the resulting warning 7010 fails the build too. The asset has to be in the tree.
+    const re = /\bFile\s+(?:\/[^\s"]+\s+)*"\$\{BUILD_RESOURCES_DIR\}\\([^"]+)"/g
+    let m
+    while ((m = re.exec(code)) !== null) {
+        const rel = m[1]
+        if (fs.existsSync(path.join(REPO_ROOT, 'build', rel))) continue
+        add(`build/installer.nsh \`File\` references build/${rel}, which this repo does not ship — makensis aborts the installer build and no setup.exe is produced`)
+    }
+    return problems
+}
+
+// ---------------------------------------------------------------------------------------------
 // Read the real files. A missing file is a failure, never a skip.
 // ---------------------------------------------------------------------------------------------
 function readOrFail (file, problems) {
@@ -283,6 +317,7 @@ const ymlText = readOrFail(YML_PATH, filesProblems)
 const installerText = readOrFail(INSTALLER_SCRIPT, filesProblems)
 const portableText = readOrFail(PORTABLE_SCRIPT, filesProblems)
 const workflowText = readOrFail(WORKFLOW_PATH, filesProblems)
+const nshText = readOrFail(NSH_PATH, filesProblems)
 for (const p of filesProblems) process.stdout.write(`FAIL ${p}\n`)
 if (filesProblems.length > 0) {
     process.stdout.write(`0/0 passed\n`)
@@ -317,6 +352,33 @@ t('the workflow builds, hashes, uploads and publishes both exes', () => {
     if (!workflowDoc || typeof workflowDoc !== 'object') throw new Error('workflow parsed to a non-object')
     const problems = validateWorkflow(workflowDoc)
     if (problems.length > 0) throw new Error(`${problems.length} problem(s):\n      - ${problems.join('\n      - ')}`)
+})
+
+t('the NSIS include never points at an asset this repo does not ship', () => {
+    const problems = validateInstallerNsh(nshText)
+    if (problems.length > 0) throw new Error(`${problems.length} problem(s):\n      - ${problems.join('\n      - ')}`)
+})
+
+t('mutation rejected: the bundle-a-redist File directive comes back', () => {
+    const mutated = nshText.replace('!macroend', '  File /nonfatal "${BUILD_RESOURCES_DIR}\\vc_redist.exe"\n!macroend')
+    const problems = validateInstallerNsh(mutated)
+    if (problems.length === 0) throw new Error('still validates — this assertion cannot fail')
+    if (!problems.some((p) => /vc_redist\.exe/.test(p))) throw new Error(`expected a problem naming vc_redist.exe, got:\n      - ${problems.join('\n      - ')}`)
+})
+
+t('the redist stays operator-supplied: no download, no bundled binary', () => {
+    // The installer may run a redist the operator placed beside it, and must never fetch or carry one.
+    const code = nsisCode(nshText)
+    if (/\bFile\b[^\n]*BUILD_RESOURCES_DIR/.test(code)) throw new Error('build/installer.nsh packages a build/ asset again')
+    if (/https?:\/\//.test(code)) throw new Error('build/installer.nsh references a URL — the installer must never download a binary')
+    if (!/\$EXEDIR\\vc_redist\.x64\.exe/.test(code)) throw new Error('the operator-supplied redist path ($EXEDIR\\vc_redist.x64.exe) is no longer offered')
+})
+
+t('mutation rejected: a new unguarded File directive creeps in', () => {
+    const mutated = nshText.replace('!macroend', '  File "${BUILD_RESOURCES_DIR}\\nope.dll"\n!macroend')
+    const problems = validateInstallerNsh(mutated)
+    if (problems.length === 0) throw new Error('still validates — this assertion cannot fail')
+    if (!problems.some((p) => /nope\.dll/.test(p))) throw new Error(`expected a problem naming nope.dll, got:\n      - ${problems.join('\n      - ')}`)
 })
 
 // ---------------------------------------------------------------------------------------------
