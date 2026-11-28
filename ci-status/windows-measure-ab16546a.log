@@ -1,0 +1,16 @@
+﻿[10:56:47] session=1 user=hermes
+[10:56:48] booted=11/27/2026 22:28:44
+[10:56:49] licence=Windows(R), EnterpriseEval edition status=1 graceMin=128853
+[10:56:54] buildinfo={ "base": "1.0.244", "build": "sms.23", "commit": "47d482b", "builtAt": "2026-11-28T02:49:46Z" }
+[10:57:15] launcher pid=3308 measure=1 measurePathEnv=<unset> cwd=C:\
+[10:58:29] windows: explorer#5200: | Smart SSH#2280:Welcome | WindowsTerminal#4692:Administrator: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE
+[10:58:29] target pid=2280 title=Welcome
+[10:58:30] appactivate=True
+[10:58:53] after_typing metrics=False
+[10:58:53] windows_after: explorer#5200: | Smart SSH#2280:Administrator: C:\Windows\SYSTEM32\cmd.exe | WindowsTerminal#4692:Administrator: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE
+[10:59:01] after_close_tab metrics=True
+[10:59:01] cwd-relative stray C:\data\metrics.json present=False
+[10:59:01] metrics_path=C:\work\accept244\data\metrics.json size=2308
+[10:59:01] metrics_head={"schema":1,"build":{"version":"1.0.244 Â· sms.23 Â· 47d482b","sha256":"AB16546A504D55E499BEDFA552EDF8EB76930FA07F33E55CC2EE8D884E9CDAA8","commit":"47d482b"},"cases":[{"case":"683x512","measured":false,"declared":true,"devicePixelRatio":1.5,"dprSource":"CASE_SPEC","window":{"wCss":683,"hCss":512,"dpr":1.5},"dockMode":"rail","theme":"dark","chrome":{"titlebar":0,"tabs":28,"statusbar":0},"viewport":{"heightPx":147,"rows":7,"cols":78,"cellHeightPx":21},"bar":{"state":"proposed","mounted":true,"heightPx":76},"barCollapsed":{"afterMs":8000,"heightPx":0,"stillMounted":true,"display":"flex"},"panes":[{"id":"only","heightPx":183,"compact":false,"barMinHeightPx":76}],"gate":"prompt_dirty","gateReason":"token_empty","trust":"watch","autoRun":"off","barMountedWhenNoProposal":false,"trustVisible":{"where":"tab","armed":false,"gateReason":"token_empty"}},{"case":"911x512","measured":false,"declared":
+[10:59:06] alive_now: 1912 2280 5948 8188 8472 8944 3308
+[10:59:06] END
