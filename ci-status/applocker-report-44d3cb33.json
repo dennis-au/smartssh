@@ -1,0 +1,151 @@
+{
+  "exe": "smartssh-1.0.247-portable-x64.exe",
+  "exe_path_in_guest": "C:\\work\\accept247\\smartssh-1.0.247-portable-x64.exe",
+  "sha256": "44D3CB3364C8E8ACE03CA23CD3E655CA7E3225510AE7845384AEABE6D33FDCC9",
+  "authenticode": "NotSigned",
+  "applocker_image_hash_sha256": "0x84CA5E87042EF4AB51E716B4FB42EDAFCE8403D8F5F84CABCCE89D100695C9AD",
+  "vm": {
+    "id": 210,
+    "name": "win-accept",
+    "ip": "192.168.0.32",
+    "os": "Microsoft Windows 11 Enterprise Evaluation 10.0.26100.1742 (24H2)",
+    "domain": "WORKGROUP",
+    "part_of_domain": false,
+    "snapshot": "pre-applocker-test (2026-11-28 16:52:18, kept)",
+    "enable_lua": 0
+  },
+  "appidsvc": "Running",
+  "smart_app_control_state": 2,
+  "smart_app_control_state_meaning": "Evaluation (does not enforce; unsigned exe ran in baseline)",
+  "wdac_policies": [
+    "{0283AC0F-FFF1-49AE-ADA1-8A933130CAD6}.cip",
+    "{0939ED82-BFD5-4D32-B58E-D31D3C49715A}.cip",
+    "{1283AC0F-FFF1-49AE-ADA1-8A933130CAD6}.cip",
+    "{1678656C-05EF-481F-BC5B-EBD8C991502D}.cip",
+    "{1939ED82-BFD5-4D32-B58E-D31D3C49715A}.cip",
+    "{2678656C-05EF-481F-BC5B-EBD8C991502D}.cip",
+    "{784C4414-79F4-4C32-A6A5-F0FB42A51D0D}.cip",
+    "{A072029F-588B-4B5E-B7F9-05AAD67DF687}.cip"
+  ],
+  "wdac_note": "All 8 .cip are in-box (mtime 2024-04-01, Windows image build date). No operator-applied WDAC policy. MSFT_CIInfo class does not exist on this build (Invalid class). CodeIntegrity/Operational had zero events during testing.",
+  "default_rules_set": true,
+  "standard_user": {
+    "name": "stduser",
+    "local_admin": false,
+    "whoami_groups_has_administrators": false,
+    "created_by": "New-LocalUser (deleted during restore)",
+    "launch_method": "CreateProcessWithLogonW LOGON_WITH_PROFILE in interactive session 1"
+  },
+  "baseline_no_policy": {
+    "allowed": true,
+    "pid": 2172,
+    "alive_after_15s": true
+  },
+  "audit_mode": {
+    "allowed": true,
+    "pid": 7048,
+    "event_ids": [
+      8003
+    ],
+    "event_8003": "%OSDRIVE%\\WORK\\ACCEPT247\\SMARTSSH-1.0.247-PORTABLE-X64.EXE was allowed to run but would have been prevented from running if the AppLocker policy were enforced."
+  },
+  "stduser_run": {
+    "exit": 1260,
+    "allowed": false,
+    "event_ids": [
+      8004
+    ],
+    "event_8004": "%OSDRIVE%\\WORK\\ACCEPT247\\SMARTSSH-1.0.247-PORTABLE-X64.EXE was prevented from running.",
+    "error_text": "This program is blocked by group policy. For more information, contact your system administrator"
+  },
+  "admin_control_run": {
+    "note": "same enforce policy, account hermes (Administrators) => allowed (false-negative demonstration)",
+    "allowed": true,
+    "pid": 6864,
+    "event_ids": [
+      8002
+    ],
+    "event_8002": "%OSDRIVE%\\WORK\\ACCEPT247\\SMARTSSH-1.0.247-PORTABLE-X64.EXE was allowed to run."
+  },
+  "hash_rule": {
+    "ok": true,
+    "event_id": 8002,
+    "rule": "<FileHashRule Id=\"ac3fa931-fa18-4c83-90c9-acd9a44d09d8\" Name=\"smartssh-1.0.247-portable-x64.exe\" UserOrGroupSid=\"S-1-1-0\" Action=\"Allow\"><Conditions><FileHashCondition><FileHash Type=\"SHA256\" Data=\"0x84CA5E87042EF4AB51E716B4FB42EDAFCE8403D8F5F84CABCCE89D100695C9AD\" SourceFileName=\"smartssh-1.0.247-portable-x64.exe\" SourceFileLength=\"127719041\" /></FileHashCondition></Conditions></FileHashRule>",
+    "caveat": "per-version rule; and it does not cover the portable payload extracted to %TEMP% (see portable_payload)"
+  },
+  "publisher_rule": {
+    "ok": false,
+    "error": "The rules cannot be created. Required file information is missing from the following file: %OSDRIVE%\\WORK\\ACCEPT247\\SMARTSSH-1.0.247-PORTABLE-X64.EXE",
+    "error_id": "Microsoft.Security.ApplicationId.PolicyManagement.MissingFileInformationException"
+  },
+  "path_rule": {
+    "ok": true,
+    "event_id": 8002,
+    "rule_path": "C:\\Apps\\SmartSSH\\*",
+    "matching_rule": "Smart SSH install folder",
+    "before_rule_blocked": {
+      "error": 1260
+    },
+    "program_files_default_rule": {
+      "allowed": true,
+      "pid": 2044,
+      "note": "exe in C:\\Program Files\\SmartSSH allowed by default rule, no custom rule needed"
+    }
+  },
+  "portable_payload": {
+    "usable_under_enforce": false,
+    "extracted_path": "C:\\Users\\stduser\\AppData\\Local\\Temp\\3MJHKUI0VCIUDE9ZC0ZDBP24NAX\\Smart SSH.exe",
+    "event_ids": [
+      8004
+    ],
+    "event_8004": "%OSDRIVE%\\USERS\\STDUSER\\APPDATA\\LOCAL\\TEMP\\3MJHKUI0VCIUDE9ZC0ZDBP24NAX\\SMART SSH.EXE was prevented from running.",
+    "observed_at": [
+      "18:29:22",
+      "18:35:58",
+      "18:38:31",
+      "18:41:03",
+      "18:45:14"
+    ],
+    "launcher_exit_code": 1,
+    "launcher_runtime_s": "33-45",
+    "consequence": "hash rule and install-path rule both allow the launcher but the extracted payload is blocked, so the app never starts"
+  },
+  "unpacked_layout": {
+    "usable_under_enforce": true,
+    "app_exe": "C:\\Program Files\\SmartSSH\\app\\Smart SSH.exe",
+    "app_exe_sha256_applocker_pe": "0x1B622CD259CEFEA6390149EFAED6B1E87D81446D423B2CB74FD0B6CB292D23C5",
+    "signed": false,
+    "rules_needed": "none (covered by default %PROGRAMFILES%\\* rule)",
+    "plugins_loaded": 12,
+    "screenshot": "ci-status/applocker-44d3cb33.png",
+    "screenshot_shows": "PS C:\\Users\\stduser> whoami -> win-accept\\stduser inside Smart SSH window"
+  },
+  "collateral_blocks_from_default_rules": [
+    "%OSDRIVE%\\PROGRAMDATA\\MICROSOFT\\WINDOWS DEFENDER\\PLATFORM\\4.18.26100.4-0\\DEFENDERSESSIONHELPER.EXE was prevented from running.",
+    "%OSDRIVE%\\PROGRAMDATA\\MICROSOFT\\WINDOWS DEFENDER\\PLATFORM\\4.18.26100.4-0\\DEFENDERAIPLATFORMHOST.EXE was prevented from running.",
+    "%OSDRIVE%\\USERS\\STDUSER\\APPDATA\\LOCAL\\MICROSOFT\\ONEDRIVE\\23.081.0416.0001\\FILESYNCCONFIG.EXE was prevented from running."
+  ],
+  "restored": {
+    "ok": true,
+    "applocker_effective_xml": "<AppLockerPolicy Version=\"1\" />",
+    "applocker_local_xml": "<AppLockerPolicy Version=\"1\" />",
+    "stduser_removed": true,
+    "test_dirs_removed": [
+      "C:\\Apps",
+      "C:\\Program Files\\SmartSSH",
+      "StartUp\\SmartSSH.bat"
+    ],
+    "autologon_restored_to": "hermes",
+    "smart_app_control_state": 2,
+    "vm_status": "running",
+    "post_restore_exe_launch": {
+      "user": "hermes",
+      "alive_after_40s": true,
+      "applocker_events": []
+    },
+    "snapshot_kept": "pre-applocker-test",
+    "checklist_note": "windows-checklist.ps1 not re-run (needs interactive session 1 desktop); baseline proved by empty effective policy XML plus a successful launch"
+  },
+  "verdict": "PATH_RULE_ONE_TIME",
+  "verdict_rationale": "Path-based allow (or simply deploying under %PROGRAMFILES%) works once and needs no per-version hash update, but only for an unpacked/installed layout; the shipped NSIS portable exe self-extracts to %LOCALAPPDATA%\\Temp and is blocked there even when the launcher itself is allowed."
+}
