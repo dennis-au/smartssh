@@ -61,6 +61,16 @@ t('renderBuildInfo keeps the PowerShell key order and writes no BOM', () => {
   assert.notStrictEqual(text.charCodeAt(0), 0xFEFF)
 })
 
+t('optional sha256 is written verbatim and invalid values are rejected', () => {
+  const fields = { version: '1.0.240', build: 'sms.18', commit: '18afdce' }
+  const sha256 = 'aB0123456789cDeF'.repeat(4)
+  assert.strictEqual(JSON.parse(renderBuildInfo({ ...fields, sha256 })).sha256, sha256)
+  assert.ok(!Object.hasOwn(makeBuildInfo(fields), 'sha256'))
+  for (const invalid of ['', 'g'.repeat(64), [sha256], null]) {
+    assert.throws(() => makeBuildInfo({ ...fields, sha256: invalid }), /sha256 must be 64 hex/)
+  }
+})
+
 t('workflow has no hardcoded SMARTSSH_VERSION', () => {
   assert.ok(!/^\s+SMARTSSH_VERSION:\s*["']?\d+\.\d+\.\d+/m.test(repoFile('.github/workflows/smartssh-win.yml')), 'hardcoded SMARTSSH_VERSION came back')
 })

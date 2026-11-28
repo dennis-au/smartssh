@@ -53,20 +53,24 @@ SmartSSH 的 portable build 由 electron-builder 的 `portable` target 產生，
   （`PORTABLE_EXECUTABLE_DIR` 有設就用它，否則用 exe 自己的資料夾），
   即 checklist 找的同一個位置。
 - 檔案在關閉視窗／終端分頁時 flush（`service.stop()`），內容是三個 case：
-  `683x512`、`911x512`、`900-high-split`。只有與當前視窗尺寸相差 ≤2px 的那個 case 是真量測，
-  其餘兩個沿用宣告幾何（見 `CASE_SPEC`）。
+  `683x512`、`911x512`、`900-high-split`。只有與當前視窗尺寸相差 ≤2px 且取得即時讀數的 case
+  才標為 `measured:true`，並記錄 `window.devicePixelRatio`。其餘標為 `declared:true`，
+  幾何與 DPR 來自 `CASE_SPEC`，不計入實測數。判檔最後一行 `live measurements: N/3` 顯示實測覆蓋率。
 - build 身份由 exe 旁邊的 `resources\extras\smartssh-buildinfo.json` 讀（依序再試
-  `<exe>\extras\`、`<exe>\data\`，最後才是開發用的 cwd 相對路徑）；同一個檔就是 checklist 傳給
-  `--buildinfo` 的那個。找不到身份就寫不出可判的檔，`flush` 會報錯而不是寫一個假的 commit。
-- `trustVisible.armed` 只有在 service 處於 armed（有可信 token）時才為 `true`；
-  未 armed 的 run 寫出的檔會被判 FAIL，所以量測請在有 push token 的狀態下做。
+  `<exe>\data\`、`<exe>\extras\`，最後才是開發用的 cwd 相對路徑）；同一個檔就是 checklist 傳給
+  `--buildinfo` 的那個。`build.sha256` 必須是 exe 的 64 位十六進位 SHA-256。若 buildinfo 未提供，
+  app 會讀 `PORTABLE_EXECUTABLE_FILE` 指向的外層 portable exe 計算，而非解壓後的副本；
+  非 portable 則用 `process.execPath`。無法確認身份就不寫檔。checklist 用 `--exe-sha` 傳入
+  它對受測 exe 算出的雜湊，比對是否同一個檔。
+- `trustVisible.armed` 取自當時的 token 狀態。未 armed 的 run 記錄 `armed:false` 及非空的
+  `gateReason`，不會單因未 armed 而 FAIL；判檔會檢查旗標與 `trust` 是否一致。
 - 自行判檔：
 
   ```sh
-  node smartssh/core/metrics-check.mjs --metrics <exe>\data\metrics.json --buildinfo <exe>\resources\extras\smartssh-buildinfo.json
+  node smartssh/core/metrics-check.mjs --metrics <exe>\data\metrics.json --buildinfo <exe>\resources\extras\smartssh-buildinfo.json --exe-sha <sha256>
   ```
 
-  沒有 `--buildinfo` 時，「build.commit 對得上 exe」那條會 SKIPPED；要 `0 skipped` 就一齊傳。
+  要 `0 skipped`，請同時提供 buildinfo 與受測 exe 的雜湊；也可用 `--exe <path>` 直接算雜湊。
 - 路徑規則的實作在 `smartssh/app/metricsPath.mjs`（`resolveMetricsPath()` / `isMeasureEnabled()`）。
 
 ## Relay 設定

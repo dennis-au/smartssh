@@ -7,7 +7,8 @@
 //     controls barModel() allows — not about internal fields.
 import assert from 'node:assert/strict'
 import { execSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pkg from '@xterm/headless'
@@ -19,11 +20,6 @@ import { CASE_IDS, judgeMetrics, parseMetrics, summarise } from '../core/metrics
 const { Terminal } = pkg
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-// join(), not string interpolation: '${HERE}/../../data' becomes a '/'+'\' mixed path on Windows
-// and would put the residue in a different place than the resolver the app uses.
-const DATA_DIR = join(HERE, '..', '..', 'data')
-const METRICS_PATH = join(DATA_DIR, 'metrics.json')
-const BUILDINFO_PATH = join(DATA_DIR, 'smartssh-buildinfo.json')
 
 const write = (term, text) => new Promise(resolve => term.write(text, resolve))
 const PROMPT = '\x1b[32mhermes@srv:~$\x1b[0m '
@@ -479,32 +475,41 @@ test('U. SMARTSSH_MEASURE=1 (app default wiring) writes data/metrics.json for th
     try { return execSync('git rev-parse --short HEAD', { cwd: HERE, encoding: 'utf8' }).trim() } catch { return '0000000' }
   })()
   const build = { version: `1.0.238 · local.1 · ${commit}`, sha256: 'a'.repeat(64), commit }
-  // No metrics/metricsPath option on purpose: this is the switch the app actually reads, with the
-  // real resolver — the env name and the file path are the two contract holes this test pins.
+  // No metrics/metricsPath option on purpose: exercise the app's env switch and real resolver
+  // without overwriting any metrics evidence in the checkout.
+  const dir = mkdtempSync(join(tmpdir(), 'smartssh-proposal-metrics-'))
+  const metricsPath = join(dir, 'data', 'metrics.json')
   const env = { ...process.env }
-  process.env.SMARTSSH_MEASURE = '1'
-  process.env.SMARTSSH_MEASURE_PATH = METRICS_PATH
-  const { service, clock } = makeService(term, {
-    service: {
-      build,
-      measurement: (caseId, ctx) => ({ rows: CASE_SPEC[caseId].viewport.rows, state: ctx.state }),
-    },
-  })
-  service.tick()
-  service.propose({ command: 'ls -la', risk: 'read' })
-  quietTick(service, clock)
-  service.reject()
-  const flushed = service.flushMetrics()
-  service.stop()
-  process.env = env
+  let parsed
+  try {
+    process.env.SMARTSSH_MEASURE = '1'
+    process.env.SMARTSSH_MEASURE_PATH = metricsPath
+    const { service, clock } = makeService(term, {
+      service: {
+        build,
+        measurement: caseId => ({ rows: CASE_SPEC[caseId].viewport.rows }),
+      },
+    })
+    service.tick()
+    service.propose({ command: 'ls -la', risk: 'read' })
+    quietTick(service, clock)
+    service.reject()
+    const flushed = service.flushMetrics()
+    service.stop()
 
-  assert.equal(flushed.path, resolve(METRICS_PATH))
-  const text = readFileSync(METRICS_PATH, 'utf8')
-  const parsed = parseMetrics(text)
+    assert.equal(flushed.path, resolve(metricsPath))
+    parsed = parseMetrics(readFileSync(metricsPath, 'utf8'))
+  } finally {
+    process.env = env
+    rmSync(dir, { recursive: true, force: true })
+  }
   assert.equal(parsed.error, undefined, `metrics.json invalid: ${parsed.error}`)
   assert.deepEqual(parsed.metrics.cases.map(c => c.case).sort(), [...CASE_IDS].sort())
   for (const c of parsed.metrics.cases) {
+    // Armed comes from the trusted token, and the document carries the gate that was used.
     assert.equal(c.trustVisible.armed, true, `${c.case} trustVisible.armed`)
+    assert.ok(c.gateReason.length > 0)
+    assert.equal(c.trustVisible.gateReason, c.gateReason)
     assert.ok(['tab', 'rail', 'statusbar'].includes(c.trustVisible.where))
     assert.equal(c.bar.state, 'rejected')
     assert.equal(c.autoRun, 'off')
@@ -512,25 +517,60 @@ test('U. SMARTSSH_MEASURE=1 (app default wiring) writes data/metrics.json for th
   assert.ok(parsed.metrics.cases.every(c => c.gate === 'clean'))
 
   // the same judge core/metrics-check.mjs runs, with build identity supplied
-  const results = judgeMetrics(parsed.metrics, { commit })
+  const results = judgeMetrics(parsed.metrics, { commit, sha256: build.sha256 })
   const summary = summarise(results)
   assert.equal(summary.fail, 0, results.filter(r => r.status === 'FAIL').map(r => `${r.name}: ${r.detail}`).join('\n'))
   assert.equal(summary.skip, 0)
   assert.ok(results.some(r => r.name.includes('683x512')))
   assert.ok(results.some(r => r.name.includes('911x512')))
   assert.ok(results.some(r => r.name.includes('900-high-split')))
-
-  // buildinfo beside the metrics file so `metrics-check --buildinfo` has nothing to skip
-  mkdirSync(DATA_DIR, { recursive: true })
-  writeFileSync(BUILDINFO_PATH, JSON.stringify({ base: '1.0.238', build: 'local.1', commit, builtAt: 'local' }), 'utf8')
 })
 
-test('V. measurement helpers refuse unknown cases instead of guessing', () => {
+test('V. measurement helpers require explicit armed and live geometry provenance', () => {
   assert.throws(() => buildMeasurement('1280x999'), /unknown case id/)
-  const m = buildMeasurement('683x512', { rows: 6, cellHeightPx: 20 })
+  // Arming is no longer assumed and an unarmed case must explain why.
+  assert.throws(() => buildMeasurement('683x512'), /requires the live armed state/)
+  assert.throws(() => buildMeasurement('683x512', { armed: false }), /must carry reading.gateReason/)
+  assert.throws(() => buildMeasurement('683x512', { armed: true, measured: true, rows: 6 }), /must carry devicePixelRatio and dprSource/)
+  const m = buildMeasurement('683x512', {
+    armed: true, measured: true, devicePixelRatio: 2, dprSource: 'window.devicePixelRatio', rows: 6, cellHeightPx: 20,
+  })
   assert.equal(m.viewport.rows, 6)
   assert.equal(m.viewport.heightPx, 120)
   assert.equal(m.trustVisible.armed, true)
+  assert.equal(m.measured, true)
+  assert.equal(m.declared, false)
+  assert.equal(m.devicePixelRatio, 2)
+  assert.equal(m.dprSource, 'window.devicePixelRatio')
+})
+
+test('W. flushing cached geometry after token removal still records the live armed and trust levels', async () => {
+  const term = head()
+  await write(term, PROMPT)
+  let readings = 0
+  const { service, clock } = makeService(term, {
+    service: {
+      metrics: true,
+      metricsPath: 'memory-only',
+      writeFile: () => {},
+      build: { commit: 'local', sha256: 'a'.repeat(64) },
+      measurement: () => { readings++; return {} },
+    },
+  })
+  service.tick()
+  service.propose({ command: 'ls', risk: 'read' })
+  quietTick(service, clock)
+  assert.equal(readings, CASE_IDS.length)
+  service.setToken()
+  const { doc } = service.flushMetrics()
+  assert.equal(readings, CASE_IDS.length, 'flush uses cached geometry')
+  for (const c of doc.cases) {
+    assert.equal(c.trustVisible.armed, false)
+    assert.equal(c.trust, 'watch')
+    assert.equal(c.gateReason, 'clean', 'the gate still comes from the last published model')
+    assert.equal(c.trustVisible.gateReason, c.gateReason)
+  }
+  service.stop()
 })
 
 // ---------------------------------------------------------------- runner

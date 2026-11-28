@@ -2,6 +2,7 @@
 #   powershell -ExecutionPolicy Bypass -File windows-checklist.ps1 `
 #       -Exe .\smartssh-1.0.238-portable-x64.exe -ExpectedSha <sha256> [-MetricsPath .\data\metrics.json]
 # Exit codes: 0 = no FAIL (skips allowed), 2 = at least one FAIL, 1 = exe missing.
+# The UI metrics judge receives the computed hash of this exe via --exe-sha.
 # Every measurement prints its NUMBER, not just PASS/FAIL, so a 5px regression is visible.
 
 param(
@@ -60,7 +61,7 @@ try {
 }
 
 # ---- 3. UI measurements (delegated to the node judge) ----------------------
-# The assertions live in smartssh/core/metrics.mjs (tested, 13/13) so the Windows side never
+# The assertions live in smartssh/core/metrics.mjs so the Windows side never
 # re-implements them. No metrics file, or no node => SKIPPED with the reason, never PASS.
 if (-not $MetricsPath) {
     $candidate = Join-Path (Split-Path $item.FullName) "data\metrics.json"
@@ -70,11 +71,12 @@ $node = (Get-Command node -ErrorAction SilentlyContinue)
 if (-not $MetricsPath -or -not (Test-Path $MetricsPath)) {
     Skip "UI metrics" "no data\metrics.json next to the exe - run it with SMARTSSH_MEASURE=1 (or pass -MetricsPath)"
 } elseif (-not $node) {
-    Skip "UI metrics" "node not found on PATH; run: node smartssh\core\metrics-check.mjs --metrics $MetricsPath"
+    Skip "UI metrics" "node not found on PATH; run: node smartssh\core\metrics-check.mjs --metrics $MetricsPath --exe-sha $hash"
 } else {
     $judge = Join-Path (Split-Path $PSScriptRoot -Parent) "core\metrics-check.mjs"
     $binfo = Join-Path (Split-Path $item.FullName) "resources\extras\smartssh-buildinfo.json"
     $argv = @($judge, "--metrics", $MetricsPath)
+    $argv += @('--exe-sha', $hash)
     if (Test-Path $binfo) { $argv += @("--buildinfo", $binfo) }
     & $node.Source @argv
     $code = $LASTEXITCODE

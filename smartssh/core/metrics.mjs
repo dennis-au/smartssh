@@ -10,6 +10,7 @@
 import { stripBom } from './buildinfo.mjs'
 
 export const SCHEMA = 1
+export const SHA256_RE = /^[0-9a-f]{64}$/i
 export const CASE_IDS = ['683x512', '911x512', '900-high-split']
 // designer v26 SPEC OF RECORD: exactly nine, in this spelling
 export const BAR_STATES = ['proposed', 'counting', 'settling', 'executing', 'exited', 'rejected', 'aborted', 'expired', 'offline']
@@ -31,6 +32,9 @@ export function parseMetrics (text) {
   if (!raw || typeof raw !== 'object') return { error: 'not an object' }
   if (raw.schema !== SCHEMA) return { error: `schema must be ${SCHEMA}, got ${JSON.stringify(raw.schema)}` }
   if (!raw.build || !isStr(raw.build.commit)) return { error: 'build.commit missing' }
+  if (!SHA256_RE.test(String(raw.build.sha256 ?? ''))) {
+    return { error: 'build.sha256 must be the exe sha256 (64 hex); an empty sha binds the numbers to no binary' }
+  }
   if (!Array.isArray(raw.cases) || raw.cases.length === 0) return { error: 'cases[] missing' }
   const ids = raw.cases.map(c => (c && typeof c.case === 'string' ? c.case : null))
   if (ids.some(x => x === null)) return { error: 'case without an id' }
@@ -40,6 +44,11 @@ export function parseMetrics (text) {
 }
 
 const byName = (m, id) => m.cases.find(c => c && c.case === id)
+const lower = v => String(v).toLowerCase()
+
+export function countLive (m) {
+  return m.cases.filter(c => c && c.measured === true).length
+}
 
 /** @returns {Array<{name:string,status:'PASS'|'FAIL'|'SKIPPED',detail:string}>} */
 export function judgeMetrics (m, buildInfo) {
@@ -55,6 +64,11 @@ export function judgeMetrics (m, buildInfo) {
     add('metrics build.commit matches the exe', m.build.commit === buildInfo.commit, `${m.build.commit} vs ${buildInfo.commit}`)
   } else {
     skip('metrics build.commit matches the exe', 'no buildinfo.json next to the exe')
+  }
+  if (buildInfo && buildInfo.sha256) {
+    add('metrics build.sha256 matches the exe under test', lower(m.build.sha256) === lower(buildInfo.sha256), `${m.build.sha256} vs ${buildInfo.sha256}`)
+  } else {
+    skip('metrics build.sha256 matches the exe under test', 'no expected exe sha supplied (pass --exe-sha <sha256>)')
   }
 
   for (const id of CASE_IDS) {
@@ -75,17 +89,20 @@ export function judgeMetrics (m, buildInfo) {
     add(`${id} bar state is one of nine`, BAR_STATES.includes(c.bar?.state), `state=${c.bar?.state}`)
     add(`${id} bar has no proposal => not mounted`, c.barMountedWhenNoProposal === false, `mounted=${c.barMountedWhenNoProposal}`)
 
-    // Armed state must be visible somewhere in EVERY case — hiding the statusbar is a layout
-    // decision, it may not hide "this host is armed" (designer v27).
+    // The current armed state must remain visible even when the statusbar is hidden (designer v27).
     const tv = c.trustVisible
-    const tvOk = !!tv && ['tab', 'rail', 'statusbar'].includes(tv.where) && tv.armed === true
+    const whereOk = !!tv && ['tab', 'rail', 'statusbar'].includes(tv.where) && typeof tv.armed === 'boolean'
     if (c.chrome?.statusbar === 0) {
       add(`${id} armed state visible with the statusbar hidden`,
-        tvOk && tv.where !== 'statusbar',
+        whereOk && tv.where !== 'statusbar',
         tv ? `where=${tv.where} armed=${tv.armed}` : 'trustVisible missing')
     } else {
-      add(`${id} armed state visible somewhere`, tvOk, tv ? `where=${tv.where} armed=${tv.armed}` : 'trustVisible missing')
+      add(`${id} armed state visible somewhere`, whereOk, tv ? `where=${tv.where} armed=${tv.armed}` : 'trustVisible missing')
     }
+    const trustActive = c.trust === 'propose' || c.trust === 'readonly_auto'
+    add(`${id} armed flag is derived from the live trust level`,
+      whereOk && tv.armed === trustActive && (tv.armed === true || isStr(c.gateReason)),
+      `armed=${tv?.armed} trust=${c.trust} gateReason=${c.gateReason}`)
 
     // collapsed terminal state: height 0, still mounted, not display:none
     if (TERMINAL_STATES.includes(c.bar?.state)) {
@@ -108,6 +125,26 @@ export function judgeMetrics (m, buildInfo) {
         panes.every(p => isNonNeg(p.heightPx) && isNonNeg(p.barMinHeightPx)), JSON.stringify(panes.map(p => p?.barMinHeightPx)))
     }
   }
+
+  for (const c of m.cases) {
+    if (!c) continue
+    const { case: id, measured, declared, devicePixelRatio, dprSource } = c
+    add(`${id} geometry source is stated exactly once (measured xor declared)`,
+      typeof measured === 'boolean' && typeof declared === 'boolean' && measured !== declared,
+      `measured=${measured} declared=${declared}`)
+    const dprOk = isNum(devicePixelRatio) && devicePixelRatio > 0
+    if (measured === true) {
+      add(`${id} live case carries real devicePixelRatio provenance`, dprOk && isStr(dprSource) && dprSource !== 'CASE_SPEC',
+        `devicePixelRatio=${devicePixelRatio} source=${dprSource}`)
+    } else {
+      add(`${id} declared case is labelled declared`, declared === true && dprOk && dprSource === 'CASE_SPEC',
+        `declared=${declared} devicePixelRatio=${devicePixelRatio} source=${dprSource}`)
+    }
+  }
+  const live = countLive(m)
+  const declared = m.cases.filter(c => c && c.declared === true).length
+  add('live measurements are counted from measured:true only',
+    live + declared === m.cases.length, `${live} live / ${declared} declared (of ${m.cases.length})`)
 
   // at least one dark case overall
   add('at least one dark-theme case', m.cases.some(c => c && c.theme === 'dark'),
