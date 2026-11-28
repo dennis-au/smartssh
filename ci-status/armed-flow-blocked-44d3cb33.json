@@ -1,0 +1,67 @@
+{
+  "task": "t_0ee83d28",
+  "subject": "armed flow on VM 210 — trustVisible.armed === true under a real session",
+  "verdict": "BLOCKED",
+  "verdictDetail": "The shipped app never arms: armed() requires tokenTrusted === true with a non-empty token, and the only writer (setSmartSSHProposalToken) has no caller in any branch or in the shipped bundle. No environment token can fix this, so no armed session exists to measure and no ci-status/windows-metrics-armed-<sha8>.json is produced (an unarmed run must never be renamed armed).",
+  "exe": {
+    "path": "C:\\work\\accept247\\smartssh-1.0.247-portable-x64.exe",
+    "sha256": "44D3CB3364C8E8ACE03CA23CD3E655CA7E3225510AE7845384AEABE6D33FDCC9",
+    "sizeBytes": 127719041,
+    "buildinfo": { "base": "1.0.247", "build": "sms.31", "commit": "85ed6e4" },
+    "authenticode": "NotSigned"
+  },
+  "evidence": {
+    "shippedBundle": {
+      "file": "resources/builtin-plugins/tabby-terminal/dist/index.js",
+      "sizeBytes": 3424376,
+      "identifierCounts": {
+        "setSmartSSHProposalToken": 1,
+        "proposeSmartSSHCommand": 1,
+        "trustVisible": 13,
+        "gateReason": 19,
+        "smartsshProposal": 33,
+        "smartSSHBuffer": 2,
+        "ARMED": 0
+      },
+      "onlySetTokenOccurrence": "Called by the SmartSSH relay when a push supplies the learned prompt token. setSmartSSHProposalToken(token, trusted = false) {",
+      "reading": "Each entry point occurs exactly once — its definition. There is no call site, and the string 'ARMED' does not exist anywhere in the renderer bundle."
+    },
+    "sourceAtHead": {
+      "gitRef": "da210d8",
+      "finding": "git grep over every branch: setSmartSSHProposalToken and proposeSmartSSHCommand appear only at tabby-terminal/src/api/baseTerminalTab.component.ts:632 and :640 (their definitions)."
+    },
+    "relayV2": {
+      "finding": "POST /v1/context.push accepts tab_id, session_id, text, line_count, range, truncated_lines, redacted_segments, masks, severity — there is no token or trusted field, so a relay push cannot supply the learned prompt token either.",
+      "file": "smartssh/relay/state.mjs#pushContext"
+    },
+    "realMachineRuns": {
+      "runs": 2,
+      "launch": "scheduled task in interactive session 1 (ssh lands in session 0); SMARTSSH_MEASURE=1 with a live cmd.exe tab, window 683x512, dpr 1",
+      "metricsEveryCase": { "trust": "watch", "trustVisible.armed": false, "gateReason": "token_empty" },
+      "matchesPriorRuns": "ci-status/windows-metrics-{ab16546a,8227aa03,9e81cf9f,2d3dc941,44d3cb33}.json — all unarmed"
+    },
+    "injectionAttempt": {
+      "method": "CDP on --remote-debugging-port=9222, Runtime.evaluate in the renderer",
+      "result": "window.ng exposes only ɵcompilerFacade (no getOwningComponent); elements carry a numeric __ngContext__ with no reachable component instance; body text has no ARMED element and .smartssh-bar is not mounted",
+      "reading": "The armed state cannot be injected into the shipped app without patching it, so a tester cannot demonstrate an armed session either."
+    },
+    "gateBlindSpot": {
+      "checklistRun": { "exe": "44d3cb33", "exit": 0, "pass": 58, "fail": 0, "skipped": 0 },
+      "judgeRun": "node smartssh/core/metrics-check.mjs on ci-status/windows-metrics-44d3cb33.json → exit 0, 50 pass / 0 fail / 1 skipped",
+      "reading": "The acceptance gate passes an all-unarmed document: judgeMetrics only requires armed === (trust is propose|readonly_auto) plus isStr(gateReason) when unarmed, so a dead armed path is green."
+    }
+  },
+  "linuxSpec": {
+    "file": "smartssh/verify/armed-flow.test.mjs",
+    "branch": "wt/armed-flow",
+    "commit": "efeee86",
+    "cases": 5,
+    "mutantsKilled": 4,
+    "note": "The armed path is correct in the modules: armed measurement, armed metrics document accepted by the real judge, exact dispatch target, unarmed never dispatches, and a real relay v2 server executing the armed dispatch while leaving the unarmed proposal 'proposed'."
+  },
+  "whatWouldUnblock": [
+    "Wire a producer for the trusted prompt token: a relay push receiver that calls setSmartSSHProposalToken(token, trusted) (add token/trusted to the push contract), or a local learner that collects >= 2 agreeing samples after Enter.",
+    "Render the armed state in the UI: designer v27 requires it visible with the statusbar hidden, but no element carries it today (trustVisible exists only in metrics.json).",
+    "Add a case that requires armed === true to the acceptance gate, or the missing armed path stays green forever."
+  ]
+}
