@@ -33,6 +33,11 @@ import { isValidSha256, readExeSha } from './exeSha.mjs'
 export const VIEWPORT_TOLERANCE_CSS = 2
 export const DEFAULT_INTERVAL_MS = 120
 export const DEFAULT_QUIET_MS = 150
+/**
+ * How often the live capture may rewrite `data/metrics.json` when nothing changed.
+ * Capture runs on every poll (the numbers may change under it); disk does not.
+ */
+export const DEFAULT_METRICS_WRITE_MS = 1000
 /** A proposal nobody answers stops being actionable; the bar then offers dismiss/ask_again. */
 export const DEFAULT_EXPIRE_MS = 30_000
 export const DEFAULT_BUILDINFO_PATHS = ['extras/smartssh-buildinfo.json', 'data/smartssh-buildinfo.json']
@@ -218,6 +223,7 @@ export function readBuildInfo (paths = buildInfoPaths(), deps = {}) {
  * @param {string} [options.metricsPath]     default: resolveMetricsPath() -> <exe dir>/data/metrics.json
  * @param {object} [options.build]           {version, sha256, commit}; default: buildinfo on disk
  * @param {(caseId: string, ctx: object) => object} [options.measurement]  per-case reading
+ * @param {number} [options.metricsWriteMs]  max age of the on-disk capture while unchanged (default 1s)
  * @param {(path: string, text: string) => void} [options.writeFile]       injectable for tests
  */
 export function createProposalService (options = {}) {
@@ -236,6 +242,7 @@ export function createProposalService (options = {}) {
   // process.execPath (renderer without node) must not fail service construction over it.
   const metricsPath = () => options.metricsPath ?? resolveMetricsPath(process.env)
   const measurementOptions = options.measurementOptions ?? {}
+  const writeMs = options.metricsWriteMs ?? DEFAULT_METRICS_WRITE_MS
 
   const settler = createSettler({ quietMs: options.quietMs ?? DEFAULT_QUIET_MS })
 
@@ -381,6 +388,11 @@ export function createProposalService (options = {}) {
   }
 
   function publish (model) {
+    // Measurement is not a side effect of the bar: it runs on every publish, before the
+    // "did the model change" early return and whether or not there is a model at all. An
+    // acceptance run has no proposal (no relay token -> state stays null), so binding the capture
+    // to the model meant `recordMeasurement` never ran and `measured:true` was unreachable.
+    if (metricsEnabled) captureMeasurements(model)
     const key = model === null ? 'null' : JSON.stringify([
       model.state, model.risk, model.command, model.gate.gate, model.gateReason,
       model.cause, model.exitCode, model.autoRun,
@@ -391,7 +403,6 @@ export function createProposalService (options = {}) {
     ])
     published = model
     if (key === prev) return
-    if (metricsEnabled && model) recordMeasurement(model)
     for (const listener of [...listeners]) {
       try { listener(model) } catch { /* a broken UI listener must not stop the service */ }
     }
@@ -399,6 +410,9 @@ export function createProposalService (options = {}) {
 
   function emit () {
     publish(state === null ? null : buildModel())
+    // The tab is alive here: tick() (120ms) and every state move end up here, so the capture that
+    // is on disk is always one taken while the terminal still exists. stop() is only a re-flush.
+    writeMetricsIfDue()
   }
 
   // ---------------------------------------------------------------- state moves
@@ -536,24 +550,52 @@ export function createProposalService (options = {}) {
   const pendingExitCode = () => (exitCode === null ? null : exitCode)
 
   // ---------------------------------------------------------------- metrics
+  // Capture and flush are deliberately independent of the proposal state machine and of whether
+  // the bar has a model at all. The acceptance run passes no relay token, so `state` stays null;
+  // the window is nevertheless real, and only a capture taken while the tab is alive can prove it.
+  //
+  //  * captureMeasurements() runs on every publish (i.e. every tick and every state move) and
+  //    keeps the best evidence per case: real geometry is never replaced by a declared fallback,
+  //    so a torn-down frontend cannot rewrite measured:true back into CASE_SPEC numbers.
+  //  * writeMetricsIfDue() persists while the tab is alive — immediately when the evidence
+  //    changed, otherwise at most every `metricsWriteMs`. Disk is not polled at 120ms.
+  //  * flushMetrics()/stop() re-flush the cache only; by then the frontend may already be gone.
   const measurements = new Map()
   let last = null
+  let liveVersion = 0        // bumped when a case gains real geometry: that evidence is written now
+  let writtenLiveVersion = -1
+  let lastWriteAt = 0
 
-  function recordMeasurement (model) {
-    last = model
-    if (typeof options.measurement === 'function') {
-      const isArmed = armed()
-      for (const id of CASE_IDS) {
-        try {
-          const reading = options.measurement(id, { state: model.state, model, gate: model.gate }) ?? {}
-          measurements.set(id, buildMeasurement(id, {
-            ...measurementOptions, ...reading, state: model.state, armed: isArmed, gateReason: model.gate.reason,
-          }))
-        } catch (error) {
-          metricsError = error
-        }
+  function captureMeasurements (model) {
+    if (typeof options.measurement !== 'function') return false
+    if (model) last = model
+    const isArmed = armed()
+    const gate = lastGate
+    const barState = model?.state ?? last?.state ?? state ?? 'proposed'
+    let changed = false
+    for (const id of CASE_IDS) {
+      let next
+      try {
+        const reading = options.measurement(id, { state: barState, model: model ?? last ?? null, gate }) ?? {}
+        next = buildMeasurement(id, {
+          ...measurementOptions, ...reading, state: barState, armed: isArmed, gateReason: gate.reason,
+        })
+      } catch (error) {
+        metricsError = error
+        continue
       }
+      const prev = measurements.get(id)
+      // Evidence, not a cache entry: only another real measurement may replace a live one. An
+      // empty reading here means the frontend is gone or the window now matches a different case.
+      if (prev?.measured === true && next.measured !== true) continue
+      // Real geometry arrives once per window layout, not once per gate flip: only that bumps
+      // liveVersion, so a settling<->clean flip cannot turn the 120ms poll into a write loop.
+      if (next.measured === true && prev?.measured !== true) liveVersion++
+      if (prev && JSON.stringify(prev) === JSON.stringify(next)) continue
+      measurements.set(id, next)
+      changed = true
     }
+    return changed
   }
 
   function metricsDocument () {
@@ -572,26 +614,54 @@ export function createProposalService (options = {}) {
       autoRun,
       barMountedWhenNoProposal: false,
     })
+    const barState = last?.state ?? state ?? 'proposed'
+    // Once a capture has run, the document is built from captured readings only: calling the host
+    // again during teardown is exactly how a dead component used to turn live geometry into
+    // "no runtime viewport was supplied".
+    const canReadHost = measurements.size === 0 && typeof options.measurement === 'function'
     const cases = CASE_IDS.map((id) => {
       const measurement = measurements.get(id)
       if (measurement) return decorate(measurement)
-      const reading = typeof options.measurement === 'function'
-        ? options.measurement(id, { state: last?.state ?? 'proposed', model: last ?? null, gate }) ?? {}
+      const reading = canReadHost
+        ? options.measurement(id, { state: barState, model: last ?? null, gate }) ?? {}
         : {}
       return decorate(buildMeasurement(id, {
-        ...measurementOptions, ...reading, state: last?.state ?? 'proposed', armed: isArmed, gateReason: gate.reason,
+        ...measurementOptions, ...reading, state: barState, armed: isArmed, gateReason: gate.reason,
       }))
     })
     return JSON.parse(writeMetrics({ build, cases }))
   }
 
-  function flushMetrics () {
-    if (!metricsEnabled) return null
-    if (metricsError) throw metricsError
+  function writeMetricsFile () {
     const doc = metricsDocument()
     const path = metricsPath()
     writeFile(path, JSON.stringify(doc))
+    writtenLiveVersion = liveVersion
+    lastWriteAt = now()
     return { path, doc }
+  }
+
+  /**
+   * Persist while the tab is alive: immediately when a case gains real geometry, otherwise at most
+   * once per `metricsWriteMs` (a gate/trust/state change rides along with that heartbeat).
+   */
+  function writeMetricsIfDue () {
+    if (!metricsEnabled || measurements.size === 0) return null
+    const due = liveVersion !== writtenLiveVersion || now() - lastWriteAt >= writeMs
+    if (!due) return null
+    try {
+      return writeMetricsFile()
+    } catch (error) {
+      metricsError = error
+      lastWriteAt = now() // retry after the throttle window, not on every poll
+      return null
+    }
+  }
+
+  function flushMetrics () {
+    if (!metricsEnabled) return null
+    if (metricsError) throw metricsError
+    return writeMetricsFile()
   }
 
   // ---------------------------------------------------------------- lifecycle
