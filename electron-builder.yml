@@ -46,6 +46,14 @@ asarUnpack:
 - node_modules/node-pty/build/Release/conpty/*
 win:
   icon: "./build/windows/icon.ico"
+  # Both Windows targets are declared here, but each build script selects exactly one
+  # (scripts/build-smartssh.mjs -> portable, scripts/build-smartssh-installer.mjs -> nsis), so a
+  # portable build never grows an installer by accident and vice versa.
+  target:
+  - target: portable
+    arch: [x64]
+  - target: nsis
+    arch: [x64]
   artifactName: tabby-${version}-portable-${env.ARCH}.${ext}
   signtoolOptions:
     rfc3161TimeStampServer: http://timestamp.sectigo.com
@@ -53,11 +61,24 @@ win:
   signExts:
   - '!OpenConsole.exe'
 nsis:
+  # Assisted installer: the user sees the wizard and picks the directory. Never oneClick (no silent
+  # install), never perMachine (no admin elevation just to install a terminal).
   oneClick: false
-  artifactName: tabby-${version}-setup-${env.ARCH}.${ext}
-  installerIcon: "./build/windows/icon.ico"
+  perMachine: false
   allowToChangeInstallationDirectory: true
-  shortcutName: Tabby Terminal
+  # Start Menu + desktop shortcuts, and the Control Panel "Apps & features" uninstall entry that
+  # every NSIS target gets by default. shortcutName names all of them.
+  createStartMenuShortcut: true
+  createDesktopShortcut: true
+  shortcutName: Smart SSH
+  runAfterFinish: true
+  # Uninstall removes the per-user data too, so "uninstall leaves nothing behind" is literally true.
+  # The portable build keeps its data next to the exe (<portable>/data), so the two never collide.
+  deleteAppDataOnUninstall: true
+  uninstallDisplayName: Smart SSH ${version}
+  artifactName: smartssh-${version}-setup-${env.ARCH}.${ext}
+  installerIcon: "./build/windows/icon.ico"
+  uninstallerIcon: "./build/windows/icon.ico"
 mac:
   category: public.app-category.utilities
   icon: "./build/mac/icon.icns"

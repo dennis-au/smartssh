@@ -109,19 +109,49 @@ jobs:
           node scripts/verify-packaging.mjs --stage=staged
           node scripts/build-smartssh.mjs
           node scripts/verify-packaging.mjs --stage=packaged
+      - name: NSIS installer
+        id: setup
+        # Second Windows target from the same packaged tree: the assisted setup.exe. Same gate as the
+        # portable exe — a tag or a manual run produces it, a push to `smartssh` never does (the
+        # branch build exists to fail before a tag is burned, and must leave no exe behind).
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        shell: powershell
+        run: |
+          # electron-builder.yml's `nsis:` block is the wizard/shortcut/uninstall contract; the
+          # script only selects that target (oneClick stays false, so this can never become a silent
+          # install). The portable exe produced above is untouched by this second build.
+          node scripts/build-smartssh-installer.mjs
+          if ($LASTEXITCODE -ne 0) { throw "build-smartssh-installer.mjs exited $LASTEXITCODE" }
+          # A packaging step that silently produced nothing is the run-19 failure one target over:
+          # fail here, with the reason, instead of letting an empty glob reach the status file.
+          $setup = @(Get-ChildItem dist -Filter *setup*.exe -ErrorAction SilentlyContinue)
+          if ($setup.Count -ne 1) { throw "expected exactly one dist/*setup*.exe, found $($setup.Count)" }
+          # The name carries the SmartSSH identity the nsis block promises.
+          if ($setup[0].Name -notmatch '^smartssh-.+-setup-.+\.exe$') { throw "unexpected setup exe name: $($setup[0].Name)" }
+          Write-Host "$($setup[0].Name) $([math]::Round($setup[0].Length/1MB,1))MB"
       - name: Hash + version
         id: hash
         # Same condition as the step that produced `dist/`: tag or manual run, never a branch push.
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         shell: powershell
         run: |
+          # Two artifacts ship per build: the portable exe and the assisted installer. Both are
+          # required — a build with only one of them is a failed packaging run, not a shorter one —
+          # so each glob throws rather than writing an empty line into the published status.
           $lines = @()
-          Get-ChildItem dist -Filter *portable*.exe | ForEach-Object {
-            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-            $lines += "$($_.Name)  $h"
-            Write-Host $_.Name $h
+          $artifacts = [ordered]@{}
+          foreach ($spec in @(@('portable', '*portable*.exe'), @('setup', '*setup*.exe'))) {
+            $kind = $spec[0]
+            $files = @(Get-ChildItem dist -Filter $spec[1] -ErrorAction SilentlyContinue)
+            if ($files.Count -ne 1) { throw "expected exactly one dist/$($spec[1]), found $($files.Count)" }
+            $f = $files[0]
+            $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash
+            $lines += "$($f.Name)  $h"
+            $artifacts[$kind] = [ordered]@{ name = $f.Name; sha256 = $h; bytes = $f.Length }
+            Write-Host $kind $f.Name $h
           }
           [IO.File]::WriteAllLines((Join-Path $PWD "artifact-sha256.txt"), $lines, (New-Object Text.UTF8Encoding($false)))
+          [IO.File]::WriteAllText((Join-Path $PWD "artifact-sha256.json"), ($artifacts | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
           Get-Content artifact-sha256.txt
       - name: Publish status (credential-free read channel for the build agent)
         if: always()
@@ -136,11 +166,14 @@ jobs:
           S_WEBPACK: ${{ steps.webpack.outcome }}
           S_BUILDINFO: ${{ steps.buildinfo.outcome }}
           S_PORTABLE: ${{ steps.portable.outcome }}
+          S_SETUP: ${{ steps.setup.outcome }}
           S_HASH: ${{ steps.hash.outcome }}
         run: |
           $hash = ''
           if (Test-Path artifact-sha256.txt) {
-            $hash = (Get-Content artifact-sha256.txt -Raw).Trim() -replace "`r|`n", ' | '
+            # One line per artifact now (portable + setup), so join the lines instead of flattening
+            # every CRLF into a separator, which produced " |  | " between the two entries.
+            $hash = ((Get-Content artifact-sha256.txt) -join ' | ')
           }
           $exe = ''
           Get-ChildItem dist -Filter *portable*.exe -ErrorAction SilentlyContinue | ForEach-Object {
@@ -171,6 +204,13 @@ jobs:
           if (Test-Path packaging-report.json) {
             try { $packaging = (Get-Content packaging-report.json -Raw).Trim() | ConvertFrom-Json } catch { $packaging = $null }
           }
+          # The two published artifacts as {portable:{name,sha256}, setup:{name,sha256}}. The hash
+          # step wrote this file and throws when either exe is missing, so both being absent can only
+          # mean that step never ran (branch push) — `steps.hash` tells a reader which it was.
+          $artifacts = $null
+          if (Test-Path artifact-sha256.json) {
+            try { $artifacts = (Get-Content artifact-sha256.json -Raw).Trim() | ConvertFrom-Json } catch { $artifacts = $null }
+          }
           $out = [ordered]@{
             run      = [int]$env:RUN_NUMBER
             commit   = $env:SHA
@@ -181,6 +221,7 @@ jobs:
               webpack   = $env:S_WEBPACK
               buildinfo = $env:S_BUILDINFO
               portable  = $env:S_PORTABLE
+              setup     = $env:S_SETUP
               hash      = $env:S_HASH
             }
             sha256   = $hash
@@ -188,6 +229,7 @@ jobs:
           }
           if ($testsOutput) { $out['testsOutput'] = $testsOutput }
           if ($packaging) { $out['packaging'] = $packaging }
+          if ($artifacts) { $out['artifacts'] = $artifacts }
           New-Item -ItemType Directory -Force -Path ci-status | Out-Null
           [IO.File]::WriteAllText((Join-Path $PWD "ci-status/$($env:RUN_NUMBER).json"), ($out | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
           Get-Content "ci-status/$($env:RUN_NUMBER).json"
@@ -211,15 +253,17 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: smartssh-portable
+          name: smartssh-win-exes
           path: |
             dist/*portable*.exe
+            dist/*setup*.exe
             artifact-sha256.txt
+            artifact-sha256.json
             extras/smartssh-buildinfo.json
             packaging-report.json
           retention-days: 90
           if-no-files-found: ignore
-      # Tag pushes only, and only when the build actually produced an exe. Draft, never public:
+      # Tag pushes only, and only when the build actually produced both exes. Draft, never public:
       # a human decides when a release goes live.
       - name: Draft release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -227,9 +271,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # PowerShell does not glob arguments for native commands, so resolve the exe here.
-          $exe = Get-ChildItem dist -Filter *portable*.exe | Select-Object -First 1
-          if (-not $exe) { throw "no *portable*.exe in dist; refusing to open an empty release" }
+          # PowerShell does not glob arguments for native commands, so resolve the exes here.
+          $portable = Get-ChildItem dist -Filter *portable*.exe | Select-Object -First 1
+          if (-not $portable) { throw "no *portable*.exe in dist; refusing to open a release without the portable build" }
+          $setup = Get-ChildItem dist -Filter *setup*.exe | Select-Object -First 1
+          if (-not $setup) { throw "no *setup*.exe in dist; refusing to open a release without the installer" }
           $sha = "$env:GITHUB_SHA".Substring(0, 7)
-          gh release create "$env:GITHUB_REF_NAME" --draft --title "$env:GITHUB_REF_NAME" --notes "portable exe built from $sha ($env:GITHUB_SHA)" $exe.FullName artifact-sha256.txt
+          gh release create "$env:GITHUB_REF_NAME" --draft --title "$env:GITHUB_REF_NAME" --notes "portable exe + assisted NSIS installer, built from $sha ($env:GITHUB_SHA)" $portable.FullName $setup.FullName artifact-sha256.txt
           gh release view "$env:GITHUB_REF_NAME" --json isDraft,url
