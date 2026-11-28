@@ -3,8 +3,21 @@ import { logMainError } from './errors'
 
 import { app, ipcMain, Menu, dialog } from 'electron'
 
+// VC++ 2015-2022 x64 runtime preflight. Deliberately this early: the SSH engine is a native addon
+// (russh.win32-x64-msvc.node) and on an image without the runtime its dlopen fails with Windows
+// error 126, which used to leave the splash on screen forever with no message. Nothing below this
+// line loads a native module, and no window is created until the probe has passed.
+import { runRuntimePreflight, presentMissingRuntime } from './vcredistPreflight'
+import { EXIT_CODE_MISSING_RUNTIME } from '../../smartssh/app/vcredist.mjs'
+
 // set userData Path on portable version
 import './portable'
+
+const runtimePreflight = runRuntimePreflight()
+if (runtimePreflight.applicable && !runtimePreflight.ok) {
+    console.error('[smartssh] VC++ runtime preflight failed:')
+    console.error(runtimePreflight.message)
+}
 
 // set defaults of environment variables
 import 'dotenv/config'
@@ -90,6 +103,18 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.on('ready', async () => {
+    // A missing VC++ runtime must end in one readable dialog, not a splash window that never
+    // advances. presentMissingRuntime() only returns 'continue' after a re-probe found the runtime.
+    if (runtimePreflight.applicable && !runtimePreflight.ok) {
+        const outcome = await presentMissingRuntime(runtimePreflight)
+        if (outcome !== 'continue') {
+            console.error('[smartssh] exiting: Microsoft Visual C++ 2015–2022 x64 Redistributable missing')
+            app.exit(EXIT_CODE_MISSING_RUNTIME)
+            return
+        }
+        console.log('[smartssh] VC++ runtime found after the user fixed it - starting normally')
+    }
+
     if (process.platform === 'darwin') {
         app.dock?.setMenu(Menu.buildFromTemplate([
             {

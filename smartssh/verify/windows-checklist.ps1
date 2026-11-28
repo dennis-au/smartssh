@@ -1,13 +1,25 @@
-# Smart SSH — Windows acceptance helper (three-state: PASS / FAIL / SKIPPED).
+﻿# Smart SSH — Windows acceptance helper (three-state: PASS / FAIL / SKIPPED).
 #   powershell -ExecutionPolicy Bypass -File windows-checklist.ps1 `
 #       -Exe .\smartssh-1.0.238-portable-x64.exe -ExpectedSha <sha256> [-MetricsPath .\data\metrics.json]
-# Exit codes: 0 = no FAIL (skips allowed), 2 = at least one FAIL, 1 = exe missing.
+# Exit codes: 0 = no FAIL (skips allowed), 2 = at least one FAIL, 1 = exe missing,
+#             3 = Microsoft Visual C++ 2015–2022 x64 Redistributable missing (nothing was measured).
 # Every measurement prints its NUMBER, not just PASS/FAIL, so a 5px regression is visible.
+#
+# This file is UTF-8 **with BOM** on purpose: PowerShell 5.1 decodes a BOM-less script as ANSI, which
+# would garble the Chinese half of the runtime message below (and make exit 3 unreadable).
+#
+# Section 0 runs before every measurement, including the sha256 check: on an image without the VC++
+# runtime the shipped exe stops on its splash screen and the checklist would otherwise report a
+# mystery failure at a later step instead of the actual cause.
 
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
     [Parameter(Mandatory = $true)][string]$ExpectedSha,
-    [string]$MetricsPath
+    [string]$MetricsPath,
+    # Self-test seam only: replace the probed directories so "no runtime installed" can be simulated
+    # in an isolated directory on any machine (never rename System32 DLLs to test this). When this is
+    # used the script says so loudly in the output, so a run with an override cannot pass unnoticed.
+    [string[]]$RuntimeDirs
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +34,68 @@ function Skip($name, $why) {
     Write-Host ("SKIPPED  " + $name + "  " + $why) -ForegroundColor Yellow; $script:skip++
 }
 function Info($name, $value) { Write-Host ("MEASURE  " + $name + " = " + $value) -ForegroundColor Cyan }
+
+# ---- 0. VC++ 2015-2022 x64 runtime preflight (before ANY measurement) -----------------------------
+# Without this runtime `russh.win32-x64-msvc.node` fails to load (Windows error 126) and the exe never
+# leaves its splash screen. Constants below are mirrored from smartssh/app/vcredist.mjs; the drift
+# test smartssh/verify/vcredist-preflight.test.mjs fails when the two disagree.
+$vcredistDlls = @('vcruntime140.dll', 'msvcp140.dll')
+$vcredistTitle = '需要 Microsoft Visual C++ 2015–2022 x64 Redistributable'
+$vcredistUrl = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+$vcredistDocs = 'https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist'
+
+$searchDirs = @()
+if ($RuntimeDirs) {
+    $searchDirs = @($RuntimeDirs)
+    Info 'vc++-runtime dirs override' ($searchDirs -join '; ')
+} else {
+    # Most specific first: a DLL next to the exe (app-local deployment) is what the process loads.
+    # $Exe may not exist yet — Split-Path is a string operation, and the exe check is step 1.
+    $exeDir = Split-Path -Parent $Exe
+    foreach ($d in @($env:PORTABLE_EXECUTABLE_DIR, $exeDir)) {
+        if ($d) { $searchDirs += $d }
+    }
+    if ($env:SystemRoot) { $searchDirs += (Join-Path $env:SystemRoot 'System32') }
+}
+# Deduplicate, keep order (Windows paths are case-insensitive).
+$seen = @{}
+$uniqueDirs = @()
+foreach ($d in $searchDirs) {
+    if (-not $d) { continue }
+    $key = $d.ToLowerInvariant()
+    if ($seen.ContainsKey($key)) { continue }
+    $seen[$key] = $true
+    $uniqueDirs += $d
+}
+$searchDirs = $uniqueDirs
+
+$foundDll = @{}
+$missingDll = @()
+foreach ($dll in $vcredistDlls) {
+    $hit = $null
+    foreach ($d in $searchDirs) {
+        if (Test-Path (Join-Path $d $dll)) { $hit = $d; break }
+    }
+    if ($hit) { $foundDll[$dll] = $hit } else { $missingDll += $dll }
+}
+
+if ($missingDll.Count -gt 0) {
+    Write-Host ''
+    Write-Host ("FAIL     vc++-runtime  " + $vcredistTitle) -ForegroundColor Red
+    Write-Host ("         missing/缺少     : " + ($missingDll -join ', '))
+    Write-Host ("         searched/已搜尋   : " + ($searchDirs -join '; '))
+    Write-Host  '         原因: SmartSSH 的 SSH 引擎是原生模組（russh.win32-x64-msvc.node），缺 runtime 時'
+    Write-Host  '         Windows 回報 error 126（找不到相依 DLL），exe 永遠停在 splash。'
+    Write-Host  '         why : the SSH engine is a native module; Windows fails to load it (error 126) and'
+    Write-Host  '               the exe never leaves its splash screen.'
+    Write-Host ("         download/下載 : " + $vcredistUrl)
+    Write-Host ("         docs/說明     : " + $vcredistDocs)
+    Write-Host  '         x64 build only. After installing, run this checklist again.'
+    Write-Host  ('EXIT 3 = ' + $vcredistTitle + ' — no measurement was taken.')
+    Write-Host ''
+    exit 3
+}
+Check 'vc++-runtime' $true ("vcruntime140.dll=" + $foundDll['vcruntime140.dll'] + " msvcp140.dll=" + $foundDll['msvcp140.dll'])
 
 if (-not (Test-Path $Exe)) { Write-Host "FAIL  exe not found: $Exe" -ForegroundColor Red; exit 1 }
 $item = Get-Item $Exe

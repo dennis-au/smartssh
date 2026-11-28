@@ -15,6 +15,26 @@
 
 exe 未經程式碼簽章，第一次執行會有 SmartScreen 提示，見文末。
 
+## 系統需求
+
+- Windows 10 / 11 **x64**（portable，免安裝；ARM64 未提供）。
+- **Microsoft Visual C++ 2015–2022 x64 Redistributable**（即 `vcruntime140.dll` 與 `msvcp140.dll`）
+  是必要條件——乾淨的 Windows image（部分 OEM image、精簡版、Server Core、受管企業 image）
+  **未必有**。缺了就是「需要 Microsoft Visual C++ 2015–2022 x64 Redistributable」，
+  因為 SSH 引擎（原生模組 `russh.win32-x64-msvc.node`）載入失敗（Windows error 126）。
+- 缺 runtime 會怎樣：主進程在任何視窗出現**之前**就探測，缺就跳一個可讀的雙語對話框
+  （原因、缺少哪個 DLL、官方下載連結、「已安裝，重試」、「結束」），按「結束」時以 exit code 3 離開。
+  **不會**再出現「只有 splash、主視窗永遠不出現、乜都冇講」的舊情況。
+- 下載（**x64，不是 x86**）：<https://aka.ms/vs/17/release/vc_redist.x64.exe>
+  說明頁：<https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist>
+- 離線／內網：把 `vc_redist.x64.exe` 放在 exe 同一個資料夾，對話框會多一個「安裝」選項。
+  程式只會執行**你放進去**的檔案，永遠不會自己去下載並執行二進位檔。
+- 驗收清單同樣會先檢查：缺 runtime 時 `windows-checklist.ps1` 會在任何量測之前以 exit code 3 失敗，
+  並印出同一段訊息。
+- **出廠 exe 不含任何微軟 binary**（沒有 redist DLL、沒有 installer）；runtime 由微軟自己的 installer
+  裝在系統上。為何選「偵測 + 指引」而不是內嵌 installer，理由見
+  [docs/vcredist-decision.md](docs/vcredist-decision.md)。
+
 ## Portable 行為
 
 SmartSSH 的 portable build 由 electron-builder 的 `portable` target 產生，該 target 會把
@@ -138,3 +158,8 @@ node smartssh/relay/relay.test.mjs   # relay 契約測試
 node smartssh/verify/test-all.mjs    # 全部 SmartSSH 測試
 node smartssh/verify/check-docs.mjs  # 文件完整性檢查
 ```
+
+要在**有** runtime 的機上證明「缺 runtime 的對話框」會出現（唔需要改 System32 任何檔案）：
+`set SMARTSSH_SIMULATE_MISSING_VCRUNTIME=1` 再啟動 exe。這個開關只會令程式拒絕啟動（強制判定為
+缺失），永遠唔會令檢查通過，所以唔可以用嚟造假；對話框訊息第一行會寫明係模擬。同理，驗收清單用
+`-RuntimeDirs <空資料夾>` 做同樣的隔離模擬。
