@@ -3,11 +3,24 @@
 版本號 = SmartSSH base version（`.github/workflows/smartssh-win.yml` 的 `SMARTSSH_VERSION`）。
 顯示用版本另加 build 與 commit，格式見 [README.md](README.md#版本)。
 
-## [Unreleased]
+## [未發佈]
 
+### 證據綁定與誠實標記（metrics）
 - UI metrics 必須記錄 `build.sha256`；Windows checklist 以受測 exe 的 SHA-256 比對。
 - `trustVisible.armed` 取自即時 token 狀態，未 armed 時須附上 `gateReason`，不再一律寫 `true`。
 - 每個 case 標示 `measured` 或 `declared` 並記錄 DPR 來源；實測覆蓋率不計宣告的幾何。
+
+### 系統需求（缺 runtime 唔再卡 splash）
+- 主進程在任何視窗建立之前先探測 `vcruntime140.dll` / `msvcp140.dll`；缺失就跳雙語對話框
+  （原因、缺少哪個 DLL、官方下載連結、「已安裝，重試」、「結束」→ exit code 3），
+  不會再出現「只有 splash、主視窗永遠不出現、乜都冇講」— `smartssh/app/vcredist.mjs`、
+  `app/lib/vcredistPreflight.ts`
+- 驗收清單第 0 段做同一個檢查，缺失時**任何量測都不執行**並以 exit code 3 失敗；
+  `-RuntimeDirs` 只供隔離目錄模擬，用了會印出來 — `smartssh/verify/windows-checklist.ps1`
+- 決策記錄：為何選「偵測 + 指引（支援自行放 installer）」而非內嵌微軟 installer —
+  `smartssh/docs/vcredist-decision.md`
+- 契約測試：清單次序、訊息字串與下載 URL、exit code、app 側接線，以及有 PowerShell 時真跑
+  正反兩向 — `smartssh/verify/vcredist-preflight.test.mjs`、`smartssh/app/vcredist.test.mjs`
 
 ## [1.0.238] — 2026-11-27
 

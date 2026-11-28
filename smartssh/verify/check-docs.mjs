@@ -40,11 +40,24 @@ const REQUIRED_DOCS = [
 
 const README_SECTIONS = [
   { heading: '安裝', needle: '安裝' },
+  { heading: '系統需求', needle: '系統需求' },
   { heading: 'Portable 行為', needle: 'Portable' },
   { heading: 'Relay 設定', needle: 'Relay' },
   { heading: '私隱', needle: '私隱' },
   { heading: '版本', needle: '版本' },
   { heading: 'SmartScreen 提示', needle: 'SmartScreen' },
+]
+
+/**
+ * The system-requirement section must stay actionable: a user whose exe stopped on the splash has to
+ * be able to name the missing runtime and reach Microsoft's download without reading any source.
+ */
+const RUNTIME_TERMS = [
+  ['需要 Microsoft Visual C++ 2015–2022 x64 Redistributable', 'the runtime, in the words the app and checklist use'],
+  ['vcruntime140.dll', 'a DLL the preflight actually probes'],
+  ['msvcp140.dll', 'the second DLL the preflight probes'],
+  ['aka.ms/vs/17/release/vc_redist.x64.exe', 'the x64 download URL'],
+  ['exit code 3', 'the exit code both entry points use'],
 ]
 
 const VERSION = '1.0.238'
@@ -142,6 +155,12 @@ if (existsSync(join(REPO_ROOT, 'smartssh/README.md'))) {
     if (!readme.includes(needle)) fail(`README.md missing required term: ${needle}`)
     else if (!readme.includes(`## ${heading}`)) fail(`README.md missing required section: ## ${heading}`)
     else pass(`README section: ## ${heading}`)
+  }
+
+  // 2b. the 系統需求 section has to be actionable, not a sentence about "requirements"
+  for (const [needle, why] of RUNTIME_TERMS) {
+    if (readme.includes(needle)) pass(`README documents runtime requirement (${why})`)
+    else fail(`README.md system-requirement section lost: ${needle} (${why})`)
   }
 }
 
