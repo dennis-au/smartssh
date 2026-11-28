@@ -161,6 +161,18 @@ function runChecklist (args) {
     return { code: res.status, out: `${res.stdout ?? ''}${res.stderr ?? ''}` }
 }
 
+// Same run, but keep the raw bytes: decoding with `encoding: 'utf8'` repairs some of the damage a
+// wrong code page does, so a byte-level look is the only way to catch a mangled message.
+function runChecklistRaw (args) {
+    const res = spawnSync(psHost, [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-File', CHECKLIST,
+        ...args,
+    ], { encoding: 'buffer', timeout: 120_000 })
+    assert.equal(res.error, undefined, `could not run ${psHost}: ${res.error?.message}`)
+    return { code: res.status, buf: Buffer.concat([res.stdout ?? Buffer.alloc(0), res.stderr ?? Buffer.alloc(0)]) }
+}
+
 if (!psHost) {
     skipped.push('behavioural preflight run: no PowerShell host on PATH (pwsh / powershell.exe)')
 } else {
@@ -172,6 +184,23 @@ if (!psHost) {
         fs.mkdirSync(withRuntime, { recursive: true })
         for (const dll of RUNTIME_DLLS) fs.writeFileSync(path.join(withRuntime, dll), 'stub')
         const missingExe = path.join(tmp, 'no-such-exe.exe')
+
+        // The Windows-only failure mode, pinned at the byte level. Run 22 failed exactly here: PS 5.1
+        // encoded the redirected stdout in the OEM code page, so '需要' left the script as '??' and the
+        // en dash in "2015–2022" was best-fitted to '-'. A decoded `.includes()` cannot see that on a
+        // UTF-8 host (pwsh on Linux), which is how the defect reached CI green-on-Linux/red-on-Windows.
+        t('runtime message leaves the script as UTF-8 bytes (no code page can mangle it)', () => {
+            const { code, buf } = runChecklistRaw([
+                '-Exe', missingExe, '-ExpectedSha', '0'.repeat(64), '-RuntimeDirs', empty,
+            ])
+            assert.equal(code, EXIT_CODE_MISSING_RUNTIME,
+                `exit ${code}, stdout bytes:\n${buf.toString('utf8')}`)
+            assert.ok(buf.includes(Buffer.from(RUNTIME_TITLE_ZH, 'utf8')),
+                'stdout does not carry the runtime name as UTF-8 bytes (a code page rewrote it):\n' +
+                buf.toString('utf8'))
+            assert.ok(!buf.includes(Buffer.from('?? Microsoft Visual C++', 'utf8')),
+                'the Chinese prefix left the script as "??" — stdout is not UTF-8:\n' + buf.toString('utf8'))
+        })
 
         t('isolated empty dir => exit 3, the runtime named, no measurement taken', () => {
             const { code, out } = runChecklist([

@@ -24,6 +24,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# ---- output encoding ---------------------------------------------------------------------------
+# PowerShell 5.1 writes a *redirected* stdout in the OEM code page (437 on a US runner). That turned
+# every Chinese character in the runtime message into '?', and best-fit the en dash in "2015–2022" to
+# an ASCII '-': the Windows CI run then compared a mangled string against the constants in
+# smartssh/app/vcredist.mjs and failed, while Linux/pwsh (already UTF-8) passed. Pin the redirected
+# stream to UTF-8 so the message leaves this script byte-for-byte as it is written here. An
+# interactive console keeps its own code page, so a legacy conhost renders exactly as before.
+if ([Console]::IsOutputRedirected) {
+    try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false }
+    catch { Write-Warning ('could not pin stdout to UTF-8: ' + $_.Exception.Message) }
+}
 $script:fail = 0
 $script:skip = 0
 

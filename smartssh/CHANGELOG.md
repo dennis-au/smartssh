@@ -17,6 +17,9 @@
   `app/lib/vcredistPreflight.ts`
 - 驗收清單第 0 段做同一個檢查，缺失時**任何量測都不執行**並以 exit code 3 失敗；
   `-RuntimeDirs` 只供隔離目錄模擬，用了會印出來 — `smartssh/verify/windows-checklist.ps1`
+- 清單的 redirected stdout 釘死 UTF-8：PowerShell 5.1 原本按 OEM code page（runner 上係 437）輸出，
+  中文變 `??`、`2015–2022` 的 en dash 被 best-fit 成 `-`，令 Windows 上讀到的訊息同常數不一致
+  （run 22 就是這樣紅的）。現在有 byte 級測試守著 — `smartssh/verify/vcredist-preflight.test.mjs`
 - 決策記錄：為何選「偵測 + 指引（支援自行放 installer）」而非內嵌微軟 installer —
   `smartssh/docs/vcredist-decision.md`
 - 契約測試：清單次序、訊息字串與下載 URL、exit code、app 側接線，以及有 PowerShell 時真跑
