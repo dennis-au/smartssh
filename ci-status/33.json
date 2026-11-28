@@ -1,0 +1,16 @@
+{
+    "run":  33,
+    "commit":  "8633cee81b8fb0fd439cdd05708f75bb267f93fc",
+    "status":  "success",
+    "steps":  {
+                  "install":  "success",
+                  "tests":  "success",
+                  "webpack":  "success",
+                  "buildinfo":  "success",
+                  "portable":  "skipped",
+                  "setup":  "skipped",
+                  "hash":  "skipped"
+              },
+    "sha256":  "",
+    "exe":  ""
+}
