@@ -19,17 +19,17 @@ export class ShellIntegrationService {
     private registryKeys = [
         {
             path: 'Software\\Classes\\Directory\\Background\\shell\\Tabby',
-            value: 'Open Tabby here',
+            value: 'Open Smart SSH here',
             command: 'open "%V"',
         },
         {
             path: 'SOFTWARE\\Classes\\Directory\\shell\\Tabby',
-            value: 'Open Tabby here',
+            value: 'Open Smart SSH here',
             command: 'open "%V"',
         },
         {
             path: 'Software\\Classes\\*\\shell\\Tabby',
-            value: 'Paste path into Tabby',
+            value: 'Paste path into Smart SSH',
             command: 'paste "%V"',
         },
     ]

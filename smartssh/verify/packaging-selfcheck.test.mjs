@@ -61,6 +61,13 @@ function makeFixture ({ stagedPlugins = true } = {}) {
 
     fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
     fs.copyFileSync(SCRIPT, path.join(root, 'scripts', 'verify-packaging.mjs'))
+    // The gate shares its branding whitelist with smartssh/verify/check-branding.mjs; the fixture
+    // gets the real module so the two gates cannot drift apart.
+    fs.mkdirSync(path.join(root, 'smartssh', 'verify'), { recursive: true })
+    fs.copyFileSync(
+        path.join(REPO_ROOT, 'smartssh', 'verify', 'brandingRules.mjs'),
+        path.join(root, 'smartssh', 'verify', 'brandingRules.mjs'),
+    )
 
     const staged = path.join(root, 'builtin-plugins')
     if (stagedPlugins) {
@@ -159,6 +166,26 @@ try {
         assert.equal(code, 1)
         assert.equal(report.symbols.SMARTSSH_MEASURE, 0)
         assert.match(output, /symbol SMARTSSH_MEASURE/)
+    })
+    t('a shipped bundle that still displays Tabby fails the packaged stage', () => {
+        const root = makeFixture()
+        const bundle = path.join(root, 'dist', 'win-unpacked', 'resources', 'builtin-plugins', 'tabby-terminal', 'dist', 'index.js')
+        fs.writeFileSync(bundle, BUNDLE + 'var thanks = "Thank you for downloading Tabby!";\n')
+        const { code, output, report } = run(root, 'packaged')
+        assert.equal(code, 1)
+        assert.equal(report.symbols.branding['tabby-terminal'], 1)
+        assert.match(output, /0 user-facing "Tabby" strings/)
+    })
+    t('whitelisted provenance inside the bundle does not fail branding', () => {
+        const root = makeFixture()
+        const bundle = path.join(root, 'dist', 'win-unpacked', 'resources', 'builtin-plugins', 'tabby-terminal', 'dist', 'index.js')
+        fs.writeFileSync(bundle, BUNDLE
+            + 'var impl = TabbyCorePlugin;\n'
+            + 'var home = "https://github.com/EugenePamyatnykh/tabby";\n'
+            + 'var scope = "@tabby-gang/core";\n')
+        const { code, report, output } = run(root, 'packaged')
+        assert.equal(code, 0, output)
+        assert.equal(report.symbols.branding['tabby-terminal'], 0)
     })
     t('the packaged stage fails when electron-builder left no unpacked tree', () => {
         const root = makeFixture()

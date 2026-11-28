@@ -211,7 +211,7 @@ export class Application {
             this.tray.setContextMenu(contextMenu)
         }
 
-        this.tray.setToolTip(`Tabby ${app.getVersion()}`)
+        this.tray.setToolTip(`Smart SSH ${app.getVersion()}`)
     }
 
     disableTray (): void {
@@ -300,7 +300,7 @@ export class Application {
             {
                 label: 'Application',
                 submenu: [
-                    { role: 'about', label: 'About Tabby' },
+                    { role: 'about', label: 'About Smart SSH' },
                     { type: 'separator' },
                     {
                         label: 'Preferences',
