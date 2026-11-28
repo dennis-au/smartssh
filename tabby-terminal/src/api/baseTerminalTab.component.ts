@@ -833,12 +833,15 @@ export class BaseTerminalTabComponent<P extends BaseTerminalProfile> extends Bas
     }
 
     async destroy (): Promise<void> {
+        // Stop the proposal service while the frontend still exists: its last flush must be able to
+        // read a live xterm. Destroying the frontend first (the old order) handed the flush a dead
+        // component, so every case fell back to declared CASE_SPEC geometry.
+        this.stopSmartSSHProposal()
         this.frontend?.detach(this.content.nativeElement)
         this.frontend?.destroy()
         this.frontend = undefined
         this.content.nativeElement.remove()
         this.detachTermContainerHandlers()
-        this.stopSmartSSHProposal()
         this.config.enabledServices(this.decorators).forEach(decorator => {
             try {
                 decorator.detach(this)

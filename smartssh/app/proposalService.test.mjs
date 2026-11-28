@@ -571,10 +571,13 @@ test('W. flushing cached geometry after token removal still records the live arm
   service.tick()
   service.propose({ command: 'ls', risk: 'read' })
   quietTick(service, clock)
-  assert.equal(readings, CASE_IDS.length)
+  // Capture is now per poll (not per model change), so count the reads made while the tab was
+  // alive and assert the flush adds none: the flush must read the cache, never the host.
+  const readsWhileAlive = readings
+  assert.ok(readsWhileAlive >= CASE_IDS.length, `captured ${readsWhileAlive} readings`)
   service.setToken()
   const { doc } = service.flushMetrics()
-  assert.equal(readings, CASE_IDS.length, 'flush uses cached geometry')
+  assert.equal(readings, readsWhileAlive, 'flush uses cached geometry')
   for (const c of doc.cases) {
     assert.equal(c.trustVisible.armed, false)
     assert.equal(c.trust, 'watch')
