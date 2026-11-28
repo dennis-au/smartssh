@@ -1,10 +1,18 @@
 name: smartssh-win
 on:
-  # Two ways in: an operator-chosen manual run, and a version tag push (v*), which builds
-  # the portable exe and opens a DRAFT release for a human to publish. A plain branch push
-  # still never spends runner minutes.
+  # Three ways in:
+  #  - workflow_dispatch: an operator-chosen manual run.
+  #  - push of a version tag (v*): the full run — install, tests, webpack, buildinfo, the portable
+  #    exe, and a DRAFT release a human decides to publish.
+  #  - push to the `smartssh` branch: the cheap half only (install / tests / webpack / buildinfo).
+  #    Three separate "Linux green, Windows red" breaks were each discovered by spending a whole tag
+  #    (~20-30 min per build), so the branch push exists to fail *before* a tag is burned. It can
+  #    never produce an exe or a release: the packaging steps below carry a tag-only `if:`, and the
+  #    status commit this job writes back carries `[skip ci]`, so it does not re-trigger itself.
   workflow_dispatch:
   push:
+    branches:
+      - smartssh
     tags:
       - 'v*'
 concurrency:
@@ -85,6 +93,10 @@ jobs:
           Get-Content extras/smartssh-buildinfo.json
       - name: Portable exe
         id: portable
+        # Tag or manual run only. A push to the `smartssh` branch stops at the four gate steps above,
+        # so it can never spend the 10+ minutes of packaging nor leave an exe behind; a manual
+        # dispatch keeps producing the dev exe it always did (SMARTSSH_VERSION_FALLBACK above).
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         run: |
           # Staging lives in this step on purpose. `electron-builder.yml` declares
           # `extraResources: builtin-plugins`, and electron-builder skips an extraResources directory
@@ -99,6 +111,8 @@ jobs:
           node scripts/verify-packaging.mjs --stage=packaged
       - name: Hash + version
         id: hash
+        # Same condition as the step that produced `dist/`: tag or manual run, never a branch push.
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         shell: powershell
         run: |
           $lines = @()
