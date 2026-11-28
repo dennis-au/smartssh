@@ -44,16 +44,16 @@ function test (name, fn) {
 
 /** One live-shaped fixture and two declared fallbacks: only one window can be measured per run. */
 function measurementFor (id, state = 'rejected') {
-  const measured = id === '900-high-split'
+  // A live case needs a complete runtime viewport matching the case, not a measured flag.
+  const measuredViewport = id === '900-high-split'
+    ? { wCss: 1280, hCss: 900, devicePixelRatio: 1, rows: 18, cols: 150, heightPx: 380, cellHeightPx: 21 }
+    : undefined
   return {
     ...buildMeasurement(id, {
       state,
       armed: true,
       gateReason: 'clean',
-      measured,
-      ...(measured && CASE_SPEC[id].viewport),
-      devicePixelRatio: CASE_SPEC[id].window.dpr,
-      dprSource: measured ? 'window.devicePixelRatio' : 'CASE_SPEC',
+      measuredViewport,
     }),
     gate: 'clean',
     gateReason: 'clean',
@@ -92,7 +92,7 @@ try {
       assert.equal(c.measured, c.case === '900-high-split')
       assert.equal(c.declared, !c.measured)
       assert.equal(c.devicePixelRatio, CASE_SPEC[c.case].window.dpr)
-      assert.equal(c.dprSource, c.measured ? 'window.devicePixelRatio' : 'CASE_SPEC')
+      assert.equal(c.dprSource, c.measured ? 'runtime' : 'CASE_SPEC')
     }
   })
 

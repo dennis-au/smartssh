@@ -128,12 +128,12 @@ test('blank SMARTSSH_MEASURE_PATH is ignored (falls back to the default)', () =>
 })
 
 // ---------------------------------------------------------------- repo-wide name consistency
-// Acceptance for this contract is "at most two names across smartssh/ and tabby-terminal/src/:
-// the switch plus its _PATH". The same rule is enforced here so a future doc cannot drift again.
-test('no third env spelling survives under smartssh/ or tabby-terminal/src/', () => {
+// The contract permits exactly the recording switch, output path, and live window case selector.
+// Reject every other spelling so code and documentation cannot silently drift.
+test('only the three canonical measurement env names survive under smartssh/ or tabby-terminal/src/', () => {
     const ROOTS = [join(REPO_ROOT, 'smartssh'), join(REPO_ROOT, 'tabby-terminal', 'src')]
-    const ALLOWED = new Set([MEASURE_ENV, MEASURE_PATH_ENV])
-    // Assembled from parts so this file itself contains no bare third spelling.
+    const ALLOWED = new Set([MEASURE_ENV, MEASURE_PATH_ENV, `${MEASURE_ENV}_CASE`])
+    // Assembled from parts so this file does not match its own pattern.
     const RE = new RegExp(`SMARTSSH_(?:${'MEASURE'}|${'METRICS'})[A-Z_]*`, 'g')
     const found = new Map()
 
@@ -155,7 +155,7 @@ test('no third env spelling survives under smartssh/ or tabby-terminal/src/', ()
     const names = [...found.keys()].sort()
     const unexpected = names.filter(name => !ALLOWED.has(name))
     assert.deepEqual(unexpected, [], `unexpected env spellings: ${unexpected.map(n => `${n} (${found.get(n)})`).join(', ')}`)
-    assert.ok(names.length <= 2, `found ${names.length} names: ${names.join(', ')}`)
+    assert.equal(names.length, ALLOWED.size, `found ${names.length} names: ${names.join(', ')}`)
 })
 
 for (const dir of [CWD_A, CWD_B]) {

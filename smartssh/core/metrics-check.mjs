@@ -43,6 +43,13 @@ if (exeSha) buildInfo = { ...buildInfo, sha256: exeSha }
 
 const results = judgeMetrics(parsed.metrics, buildInfo)
 for (const r of results) console.log(`${r.status.padEnd(8)} ${r.name}  ${r.detail}`)
+// A failing run must name the rule that failed: "0 pass / 0 fail" plus a live count is what let a
+// zero-measurement file read as green for two releases.
+const failures = results.filter(r => r.status === 'FAIL')
+if (failures.length) {
+  console.log(`\nJUDGE FAILED (${failures.length}):`)
+  for (const r of failures) console.log(`  JUDGE FAIL: ${r.name}  ${r.detail}`)
+}
 const s = summarise(results)
 console.log(`\n${s.pass} pass / ${s.fail} fail / ${s.skip} skipped`)
 console.log(`live measurements: ${countLive(parsed.metrics)}/${parsed.metrics.cases.length} (measured:true only; declared cases excluded)`)

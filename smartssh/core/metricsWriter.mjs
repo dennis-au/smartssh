@@ -28,6 +28,9 @@ export function measurementToCase (m) {
     if (!dprOk || typeof dprSource !== 'string' || !dprSource || dprSource === 'CASE_SPEC') {
       throw new Error('a measured case must carry a real devicePixelRatio and dprSource')
     }
+    if (![m.window?.wCss, m.window?.hCss].every(value => Number.isFinite(value) && value > 0)) {
+      throw new Error('a measured case must state the real window it was measured in (window.wCss and window.hCss)')
+    }
   } else if (!dprOk || dprSource !== 'CASE_SPEC') {
     throw new Error('a declared case must carry a positive devicePixelRatio and dprSource CASE_SPEC')
   }
@@ -52,6 +55,7 @@ export function measurementToCase (m) {
     autoRun: m.autoRun,
     barMountedWhenNoProposal: m.barMountedWhenNoProposal,
     trustVisible,
+    ...(typeof m.measurementNote === 'string' && m.measurementNote.length > 0 && { measurementNote: m.measurementNote }),
   }
 }
 

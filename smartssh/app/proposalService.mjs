@@ -30,6 +30,7 @@ import { isMeasureEnabled, metricsBaseDir, resolveMetricsPath } from './metricsP
 import { parseBuildInfo, formatVersion } from '../core/buildinfo.mjs'
 import { isValidSha256, readExeSha } from './exeSha.mjs'
 
+export const VIEWPORT_TOLERANCE_CSS = 2
 export const DEFAULT_INTERVAL_MS = 120
 export const DEFAULT_QUIET_MS = 150
 /** A proposal nobody answers stops being actionable; the bar then offers dismiss/ask_again. */
@@ -41,8 +42,8 @@ const EXIT_CODE_RE = /exit(?:ed)?(?: with)?(?: (?:code|status))?[ :=]*(-?\d+)\b/
 
 /**
  * The three window geometries of the UI measurement contract (designer v27 / metrics.mjs).
- * These are declared case *geometries*, not measurements of anything: the live numbers (rows,
- * cell height, theme, chrome) are supplied per reading by the host and override them.
+ * These are declared case geometries, not measurements. Only a complete runtime viewport for
+ * the matching window can replace the declared geometry.
  */
 export const CASE_SPEC = {
   '683x512': {
@@ -80,10 +81,38 @@ export const CASE_SPEC = {
 const isStr = v => typeof v === 'string' && v.length > 0
 
 /**
+ * Judge the runtime viewport the host hands over.
+ * A case counts as measured only when the numbers describe a real window AND that window is this
+ * case; otherwise the honest answer is "declared from CASE_SPEC", never a fabricated measured:true.
+ * @returns {{ok: boolean, note: string}}
+ */
+export function verdictForViewport (caseId, viewport, spec = CASE_SPEC[caseId]) {
+  if (!viewport || typeof viewport !== 'object') return { ok: false, note: 'no runtime viewport was supplied' }
+  const problems = []
+  if (!(Number.isFinite(viewport.wCss) && viewport.wCss > 0)) problems.push('wCss')
+  if (!(Number.isFinite(viewport.hCss) && viewport.hCss > 0)) problems.push('hCss')
+  if (!(Number.isFinite(viewport.devicePixelRatio) && viewport.devicePixelRatio > 0)) problems.push('devicePixelRatio')
+  if (!(Number.isInteger(viewport.rows) && viewport.rows >= 1 && viewport.rows <= 200)) problems.push('rows')
+  if (!(Number.isInteger(viewport.cols) && viewport.cols >= 1)) problems.push('cols')
+  if (!(Number.isFinite(viewport.heightPx) && viewport.heightPx > 0)) problems.push('heightPx')
+  if (!(Number.isFinite(viewport.cellHeightPx) && viewport.cellHeightPx > 0)) problems.push('cellHeightPx')
+  if (problems.length) return { ok: false, note: `runtime viewport is incomplete: ${problems.join(', ')}` }
+  if (Math.abs(viewport.wCss - spec.window.wCss) > VIEWPORT_TOLERANCE_CSS ||
+      Math.abs(viewport.hCss - spec.window.hCss) > VIEWPORT_TOLERANCE_CSS) {
+    return {
+      ok: false,
+      note: `runtime window ${viewport.wCss}x${viewport.hCss} is not case ${caseId} ` +
+        `(${spec.window.wCss}x${spec.window.hCss} +/-${VIEWPORT_TOLERANCE_CSS})`,
+    }
+  }
+  return { ok: true, note: '' }
+}
+
+/**
  * Build one measurement case for metricsWriter/`metrics-check.mjs`.
- * `reading` carries whatever the host really measured; anything it omits falls back to the
- * declared case geometry. Armed comes from the live token state; an unarmed run records
- * `armed: false` plus the gate reason that explains it.
+ * Geometry comes entirely from either a valid runtime viewport or the declared case spec.
+ * Armed comes from the live token state; an unarmed run records `armed: false` plus the gate
+ * reason that explains it.
  * @param {string} caseId
  * @param {object} [reading]
  */
@@ -98,34 +127,32 @@ export function buildMeasurement (caseId, reading = {}) {
     throw new Error('an unarmed measurement must carry reading.gateReason')
   }
 
-  const measured = reading.measured === true
-  if (measured && !(Number.isInteger(reading.rows) && Number.isFinite(reading.devicePixelRatio) && reading.devicePixelRatio > 0)) {
-    throw new Error('a measured case must carry devicePixelRatio and dprSource')
-  }
-  const devicePixelRatio = measured ? reading.devicePixelRatio : spec.window.dpr
-  const dprSource = measured
-    ? (isStr(reading.dprSource) ? reading.dprSource : 'window.devicePixelRatio')
-    : 'CASE_SPEC'
-  const rows = Number.isInteger(reading.rows) ? reading.rows : spec.viewport.rows
-  const cellHeightPx = Number.isFinite(reading.cellHeightPx) ? reading.cellHeightPx : spec.viewport.cellHeightPx
-  const heightPx = Number.isFinite(reading.heightPx)
-    ? reading.heightPx
-    : (rows === spec.viewport.rows ? spec.viewport.heightPx : rows * cellHeightPx)
+  const { measuredViewport } = reading
+  const verdict = verdictForViewport(caseId, reading.measuredViewport)
+  const measured = verdict.ok
+  const devicePixelRatio = measured ? measuredViewport.devicePixelRatio : spec.window.dpr
   return {
     case: caseId,
     measured,
     declared: !measured,
     devicePixelRatio,
-    dprSource,
-    window: { ...spec.window, ...reading.window, dpr: devicePixelRatio },
+    dprSource: measured ? 'runtime' : 'CASE_SPEC',
+    window: measured
+      ? { wCss: measuredViewport.wCss, hCss: measuredViewport.hCss, dpr: devicePixelRatio }
+      : { ...spec.window },
     dockMode: reading.dockMode ?? spec.dockMode,
     theme: reading.theme ?? spec.theme,
     chrome: { ...spec.chrome, ...reading.chrome },
-    viewport: { heightPx, rows, cols: reading.cols ?? spec.viewport.cols, cellHeightPx },
+    viewport: measured
+      ? { heightPx: measuredViewport.heightPx, rows: measuredViewport.rows, cols: measuredViewport.cols, cellHeightPx: measuredViewport.cellHeightPx }
+      : { ...spec.viewport },
     bar: { state: reading.state, mounted: true, heightPx: Number.isFinite(reading.barHeightPx) ? reading.barHeightPx : 76 },
     barCollapsed: { afterMs: 8000, heightPx: 0, stillMounted: true, display: 'flex' },
     panes: reading.panes ?? spec.panes,
     trustVisible: { where: reading.trustWhere ?? spec.trustWhere, armed, gateReason: reading.gateReason ?? '' },
+    ...(!measured && {
+      measurementNote: verdict.note + (reading.measured === true ? '; measured:true alone is not a measurement' : ''),
+    }),
   }
 }
 

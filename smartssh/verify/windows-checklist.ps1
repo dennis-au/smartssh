@@ -149,6 +149,7 @@ try {
 # ---- 3. UI measurements (delegated to the node judge) ----------------------
 # The assertions live in smartssh/core/metrics.mjs so the Windows side never
 # re-implements them. No metrics file, or no node => SKIPPED with the reason, never PASS.
+. (Join-Path $PSScriptRoot "judgeFailure.ps1")
 if (-not $MetricsPath) {
     $candidate = Join-Path (Split-Path $item.FullName) "data\metrics.json"
     if (Test-Path $candidate) { $MetricsPath = $candidate }
@@ -164,10 +165,25 @@ if (-not $MetricsPath -or -not (Test-Path $MetricsPath)) {
     $argv = @($judge, "--metrics", $MetricsPath)
     $argv += @('--exe-sha', $hash)
     if (Test-Path $binfo) { $argv += @("--buildinfo", $binfo) }
-    & $node.Source @argv
+    [string[]] $judgeLines = & {
+        # Windows PowerShell can treat redirected native stderr as a PowerShell error.
+        $ErrorActionPreference = 'Continue'
+        $PSNativeCommandUseErrorActionPreference = $false
+        & $node.Source @argv 2>&1 | ForEach-Object {
+            $line = [string]$_
+            Write-Host $line
+            $line
+        }
+    }
     $code = $LASTEXITCODE
-    if ($code -eq 0) { Write-Host "PASS     UI metrics judged (see lines above)" -ForegroundColor Green }
-    else { Write-Host "FAIL     UI metrics judged (see lines above)" -ForegroundColor Red; $script:fail++ }
+    if ($code -ne 0) {
+        foreach ($reason in (Get-JudgeFailureLines -Lines $judgeLines)) {
+            Write-Host "FAIL     UI metrics  $reason" -ForegroundColor Red
+        }
+        $script:fail++
+    } else {
+        Write-Host "PASS     UI metrics judged (see lines above)" -ForegroundColor Green
+    }
 }
 
 Write-Host ""

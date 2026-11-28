@@ -145,6 +145,13 @@ export function judgeMetrics (m, buildInfo) {
   const declared = m.cases.filter(c => c && c.declared === true).length
   add('live measurements are counted from measured:true only',
     live + declared === m.cases.length, `${live} live / ${declared} declared (of ${m.cases.length})`)
+  const liveCount = countLive(m)
+  add('at least one case is a live measurement (measured:true)',
+    liveCount > 0,
+    liveCount > 0
+      ? `${liveCount} of ${m.cases.length} cases are measured:true`
+      : `no live measurement: 0 of ${m.cases.length} cases are measured:true; every case is a declared ` +
+        `CASE_SPEC value, so nothing in this file describes this exe's real window`)
 
   // at least one dark case overall
   add('at least one dark-theme case', m.cases.some(c => c && c.theme === 'dark'),
