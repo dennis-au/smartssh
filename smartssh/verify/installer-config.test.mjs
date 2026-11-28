@@ -134,6 +134,45 @@ function validateBuilderYml (doc) {
 /** Drop full-line `//` comments so prose about `portable` is not mistaken for a target. */
 const codeOnly = (text) => text.split(/\r?\n/).filter((l) => !l.trimStart().startsWith('//')).join('\n')
 
+/**
+ * Every `publish:` key written in the builder({...}) call, with the depth it sits at (1 = a direct
+ * property of the options object, >1 = nested inside `config` or a sub-object).
+ *
+ * Why depth matters: app-builder-lib builds its PublishManager from the TOP-LEVEL options
+ * (`new PublishManager(packager, options)` in app-builder-lib/out/index.js), never from `config`.
+ * A `publish` nested in `config` is read by nothing; with no top-level policy PublishManager sees CI
+ * and implies "onTagOrDraft", the nsis target emits an update-info artifact, and electron-publish
+ * throws "GitHub Personal Access Token is not set" *after* setup.exe was built. That is exactly how
+ * CI run 34 failed its NSIS step (setup.exe present, no `artifacts` key in ci-status/34.json), so the
+ * location of this one key is part of the contract, not a style choice.
+ */
+function publishOccurrences (code) {
+    const out = []
+    const callStart = code.search(/\bbuilder\s*\(\s*\{/)
+    if (callStart < 0) return out
+    let depth = 0
+    for (let i = code.indexOf('{', callStart); i < code.length; i++) {
+        const ch = code[i]
+        if (ch === '"' || ch === "'" || ch === '`') {
+            for (i++; i < code.length; i++) {
+                if (code[i] === '\\') { i++; continue }
+                if (code[i] === ch) break
+            }
+            continue
+        }
+        if (ch === '{' || ch === '[' || ch === '(') {
+            depth++
+        } else if (ch === '}' || ch === ']' || ch === ')') {
+            depth--
+            if (depth === 0) break
+        } else if (depth >= 1) {
+            const m = /^publish\s*:\s*(['"])([^'"]*)\1/.exec(code.slice(i))
+            if (m) out.push({ depth, value: m[2] })
+        }
+    }
+    return out
+}
+
 function validateInstallerScript (text) {
     const problems = []
     const add = (m) => problems.push(m)
@@ -156,6 +195,21 @@ function validateInstallerScript (text) {
     }
     if (!new RegExp(`appId:\\s*['"]${APP_ID.replace(/\./g, '\\.')}['"]`).test(code)) {
         add(`scripts/build-smartssh-installer.mjs does not set appId ${JSON.stringify(APP_ID)}`)
+    }
+
+    // Publishing must be disabled explicitly, at the top level. See publishOccurrences() for why.
+    const publishes = publishOccurrences(code)
+    const topLevel = publishes.filter((p) => p.depth === 1)
+    const nested = publishes.filter((p) => p.depth > 1)
+    if (topLevel.length === 0) {
+        add('scripts/build-smartssh-installer.mjs has no top-level `publish` — in CI electron-builder then implies publish="onTagOrDraft", the nsis target emits update-info, and the GitHub publisher throws "GitHub Personal Access Token is not set" after setup.exe was built (CI run 34)')
+    } else if (topLevel.length > 1) {
+        add(`scripts/build-smartssh-installer.mjs sets ${topLevel.length} top-level publish policies — exactly one must decide`)
+    } else if (topLevel[0].value !== 'never') {
+        add(`scripts/build-smartssh-installer.mjs top-level publish is ${JSON.stringify(topLevel[0].value)}, must be "never" — CI uploads the exes itself, and any other policy reaches the GitHub publisher, which has no token in this workflow`)
+    }
+    if (nested.length > 0) {
+        add(`scripts/build-smartssh-installer.mjs writes publish at depth ${nested.map((p) => p.depth).join(',')} inside config — PublishManager only reads the top-level option, so a config-level publish is inert and pretends publishing is controlled when it is not`)
     }
     return problems
 }
@@ -422,6 +476,9 @@ const SCRIPT_MUTATIONS = [
     ['installer script flips oneClick itself', (text) => text.replace('forceCodeSigning: false,', 'forceCodeSigning: false,\n        oneClick: true,'), /oneClick/],
     ['installer script loses the SmartSSH productName', (text) => text.replace(`productName: "Smart SSH"`, `productName: "Tabby"`), /productName/],
     ['installer script loses the appId', (text) => text.replace(`appId: "com.smartssh.app"`, `appId: "org.tabby"`), /appId/],
+    ['installer script drops the top-level publish policy', (text) => text.replace(/\n\s*publish: "never",/, ''), /publish/],
+    ['installer script publishes on tag in CI', (text) => text.replace('publish: "never"', 'publish: "onTagOrDraft"'), /publish/],
+    ['installer script moves publish back inside config', (text) => text.replace(/\n\s*publish: "never",/, '').replace('config: {', 'config: {\n        publish: "never",'), /publish/],
 ]
 
 for (const [name, mutate, expected] of SCRIPT_MUTATIONS) {

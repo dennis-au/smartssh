@@ -29,11 +29,18 @@ process.env.ARCH = process.env.ARCH || "x64"
 await builder({
     dir: false,
     win: ["nsis"],
+    // TOP-LEVEL, not inside `config`: app-builder-lib constructs its PublishManager from build()'s
+    // top-level options (`new PublishManager(packager, options)`), so a `publish` inside `config` is
+    // read by nobody. With no top-level policy, PublishManager detects CI and implies
+    // "onTagOrDraft"; the nsis target emits an update-info artifact, and the resulting
+    // GitHubPublisher throws "GitHub Personal Access Token is not set" *after* setup.exe was built —
+    // which failed CI run 34 at this step and left ci-status/<run>.json without an `artifacts` key.
+    // CI publishes the exes itself via upload-artifact / draft release, so never publish here.
+    publish: "never",
     config: {
         productName: "Smart SSH",
         appId: "com.smartssh.app",
         extraMetadata: { version: vars.version },
-        publish: undefined,
         forceCodeSigning: false,
         win: {
             // Assisted installer only — never oneClick, never silent. The wizard, the shortcut and
