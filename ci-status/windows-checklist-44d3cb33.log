@@ -1,0 +1,64 @@
+PASS     vc++-runtime  vcruntime140.dll=C:\Windows\System32 msvcp140.dll=C:\Windows\System32
+PASS     sha256  file=44D3CB3364C8E8ACE03CA23CD3E655CA7E3225510AE7845384AEABE6D33FDCC9 expected=44D3CB3364C8E8ACE03CA23CD3E655CA7E3225510AE7845384AEABE6D33FDCC9
+PASS     size  121.8 MB
+PASS     signature  status=NotSigned
+MEASURE  baseline = smartssh-1.0.247-portable-x64.before.json
+PASS     read-only launch survives  pid=9700 exited=False
+PASS     no silent fallback to %LOCALAPPDATA%  data dir created=False
+PASS     at least one required case is present  matched 3/3
+PASS     metrics build.commit matches the exe  85ed6e4 vs 85ed6e4
+PASS     metrics build.sha256 matches the exe under test  44D3CB3364C8E8ACE03CA23CD3E655CA7E3225510AE7845384AEABE6D33FDCC9 vs 44D3CB3364C8E8ACE03CA23CD3E655CA7E3225510AE7845384AEABE6D33FDCC9
+PASS     683x512 rows is an integer >= 6  rows=26
+PASS     683x512 viewport numbers are non-negative  heightPx=444 cellHeightPx=17.076923076923077
+PASS     683x512 theme recorded  theme=dark
+PASS     683x512 chrome is per-case and non-negative  titlebar=0 tabs=28 statusbar=0
+PASS     683x512 dockMode  dockMode=rail
+PASS     683x512 gate is one of five  gate=prompt_dirty
+PASS     683x512 trust is one of four  trust=watch
+PASS     683x512 autoRun is on/off  autoRun=off
+PASS     683x512 bar state is one of nine  state=proposed
+PASS     683x512 bar has no proposal => not mounted  mounted=false
+PASS     683x512 armed state visible with the statusbar hidden  where=tab armed=false
+PASS     683x512 armed flag is derived from the live trust level  armed=false trust=watch gateReason=token_empty
+PASS     911x512 rows is an integer >= 6  rows=7
+PASS     911x512 viewport numbers are non-negative  heightPx=147 cellHeightPx=21
+PASS     911x512 theme recorded  theme=light
+PASS     911x512 chrome is per-case and non-negative  titlebar=0 tabs=28 statusbar=0
+PASS     911x512 dockMode  dockMode=rail
+PASS     911x512 gate is one of five  gate=prompt_dirty
+PASS     911x512 trust is one of four  trust=watch
+PASS     911x512 autoRun is on/off  autoRun=off
+PASS     911x512 bar state is one of nine  state=proposed
+PASS     911x512 bar has no proposal => not mounted  mounted=false
+PASS     911x512 armed state visible with the statusbar hidden  where=tab armed=false
+PASS     911x512 armed flag is derived from the live trust level  armed=false trust=watch gateReason=token_empty
+PASS     900-high-split rows is an integer >= 6  rows=18
+PASS     900-high-split viewport numbers are non-negative  heightPx=380 cellHeightPx=21
+PASS     900-high-split theme recorded  theme=dark
+PASS     900-high-split chrome is per-case and non-negative  titlebar=0 tabs=38 statusbar=26
+PASS     900-high-split dockMode  dockMode=full
+PASS     900-high-split gate is one of five  gate=prompt_dirty
+PASS     900-high-split trust is one of four  trust=watch
+PASS     900-high-split autoRun is on/off  autoRun=off
+PASS     900-high-split bar state is one of nine  state=proposed
+PASS     900-high-split bar has no proposal => not mounted  mounted=false
+PASS     900-high-split armed state visible somewhere  where=statusbar armed=false
+PASS     900-high-split armed flag is derived from the live trust level  armed=false trust=watch gateReason=token_empty
+PASS     900-high-split reports >= 2 panes  panes=2
+PASS     900-high-split: exactly one pane compact (@container, not @media)  compact=1/2
+PASS     900-high-split: panes carry real style numbers  [92,76]
+PASS     683x512 geometry source is stated exactly once (measured xor declared)  measured=true declared=false
+PASS     683x512 live case carries real devicePixelRatio provenance  devicePixelRatio=1 source=runtime
+PASS     911x512 geometry source is stated exactly once (measured xor declared)  measured=false declared=true
+PASS     911x512 declared case is labelled declared  declared=true devicePixelRatio=1.5 source=CASE_SPEC
+PASS     900-high-split geometry source is stated exactly once (measured xor declared)  measured=false declared=true
+PASS     900-high-split declared case is labelled declared  declared=true devicePixelRatio=1 source=CASE_SPEC
+PASS     live measurements are counted from measured:true only  1 live / 2 declared (of 3)
+PASS     at least one case is a live measurement (measured:true)  1 of 3 cases are measured:true
+PASS     at least one dark-theme case  themes=dark,light,dark
+
+51 pass / 0 fail / 0 skipped
+live measurements: 1/3 (measured:true only; declared cases excluded)
+PASS     UI metrics judged (see lines above)
+
+ALL CHECKS PASSED (skipped: 0)
