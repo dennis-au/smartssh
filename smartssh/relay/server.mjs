@@ -8,8 +8,19 @@ if (process.env.RELAY_DEV === '1') {
   ({ createDevFault } = await import('./devFault.mjs'))
 }
 
+// The app calls this relay from an Electron renderer (a page origin, not curl), so every response
+// needs CORS metadata or the browser throws the body away. The bearer token is the actual control —
+// CORS only decides whether the *page* may read the answer — so any origin may read it, and a
+// preflight is answered before auth because a preflight never carries the Authorization header.
+export const CORS_HEADERS = Object.freeze({
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, content-type, idempotency-key',
+  'Access-Control-Max-Age': '600',
+})
+
 function send (res, { status, body, headers }) {
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers })
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...CORS_HEADERS, ...headers })
   res.end(JSON.stringify(body))
 }
 
@@ -31,6 +42,11 @@ export function createRelay ({ store = createStore() } = {}) {
 
   return createServer(async (req, res) => {
     try {
+      if (req.method === 'OPTIONS') {
+        req.resume()
+        res.writeHead(204, CORS_HEADERS)
+        return res.end()
+      }
       const auth = Buffer.from(req.headers.authorization ?? '')
       if (!expected || auth.length !== expected.length || !timingSafeEqual(auth, expected)) {
         req.resume()
