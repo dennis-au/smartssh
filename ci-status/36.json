@@ -1,0 +1,184 @@
+{
+    "run":  36,
+    "commit":  "0445e61a2a0bec9b2540ad7f8b28b76f5a47d8e1",
+    "status":  "success",
+    "steps":  {
+                  "install":  "success",
+                  "tests":  "success",
+                  "webpack":  "success",
+                  "buildinfo":  "success",
+                  "portable":  "success",
+                  "setup":  "success",
+                  "hash":  "success"
+              },
+    "sha256":  "smartssh-0.0.0-dev-portable-x64.exe  D0D5DD674E7A4C2922EAB20698ADA8871CBE5E8091A84A08C588EE14B093DD2D | smartssh-0.0.0-dev-setup-x64.exe  2DD21A867B044AB6F22E2970B2A22ABEAD2D310AA9E29A65C27E8FFC35A5ED44",
+    "exe":  "smartssh-0.0.0-dev-portable-x64.exe 121.8MB",
+    "packaging":  {
+                      "stage":  "packaged",
+                      "ok":  true,
+                      "checks":  [
+                                     {
+                                         "name":  "electron-builder unpacked dir",
+                                         "ok":  true,
+                                         "detail":  "dist/win-unpacked"
+                                     },
+                                     {
+                                         "name":  "resources/builtin-plugins/ exists",
+                                         "ok":  true,
+                                         "detail":  "dist/win-unpacked/resources/builtin-plugins"
+                                     },
+                                     {
+                                         "name":  "resources/app.asar exists",
+                                         "ok":  true,
+                                         "detail":  "bytes=30936195"
+                                     },
+                                     {
+                                         "name":  "plugin count",
+                                         "ok":  true,
+                                         "detail":  "12 dirs (expected \u003e= 12): tabby-auto-sudo-password,tabby-community-color-schemes,tabby-core,tabby-electron,tabby-linkifier,tabby-local,tabby-plugin-manager,tabby-serial,tabby-settings,tabby-ssh,tabby-telnet,tabby-terminal"
+                                     },
+                                     {
+                                         "name":  "tabby-core/package.json",
+                                         "ok":  true,
+                                         "detail":  "dist/win-unpacked/resources/builtin-plugins/tabby-core/package.json"
+                                     },
+                                     {
+                                         "name":  "tabby-core/package.json parses",
+                                         "ok":  true,
+                                         "detail":  "name=tabby-core version=1.0.231-nightly.0"
+                                     },
+                                     {
+                                         "name":  "tabby-core/keywords",
+                                         "ok":  true,
+                                         "detail":  "[\"tabby-builtin-plugin\"]"
+                                     },
+                                     {
+                                         "name":  "tabby-core/main exists",
+                                         "ok":  true,
+                                         "detail":  "dist/win-unpacked/resources/builtin-plugins/tabby-core/dist/index.js"
+                                     },
+                                     {
+                                         "name":  "tabby-settings/package.json",
+                                         "ok":  true,
+                                         "detail":  "dist/win-unpacked/resources/builtin-plugins/tabby-settings/package.json"
+                                     },
+                                     {
+                                         "name":  "tabby-settings/package.json parses",
+                                         "ok":  true,
+                                         "detail":  "name=tabby-settings version=1.0.231-nightly.0"
+                                     },
+                                     {
+                                         "name":  "tabby-settings/keywords",
+                                         "ok":  true,
+                                         "detail":  "[\"tabby-builtin-plugin\"]"
+                                     },
+                                     {
+                                         "name":  "tabby-settings/main exists",
+                                         "ok":  true,
+                                         "detail":  "dist/win-unpacked/resources/builtin-plugins/tabby-settings/dist/index.js"
+                                     },
+                                     {
+                                         "name":  "tabby-terminal/package.json",
+                                         "ok":  true,
+                                         "detail":  "dist/win-unpacked/resources/builtin-plugins/tabby-terminal/package.json"
+                                     },
+                                     {
+                                         "name":  "tabby-terminal/package.json parses",
+                                         "ok":  true,
+                                         "detail":  "name=tabby-terminal version=1.0.231-nightly.0"
+                                     },
+                                     {
+                                         "name":  "tabby-terminal/keywords",
+                                         "ok":  true,
+                                         "detail":  "[\"tabby-builtin-plugin\"]"
+                                     },
+                                     {
+                                         "name":  "tabby-terminal/main exists",
+                                         "ok":  true,
+                                         "detail":  "dist/win-unpacked/resources/builtin-plugins/tabby-terminal/dist/index.js"
+                                     },
+                                     {
+                                         "name":  "tabby-terminal/dist/index.js exists",
+                                         "ok":  true,
+                                         "detail":  "dist/win-unpacked/resources/builtin-plugins/tabby-terminal/dist/index.js"
+                                     },
+                                     {
+                                         "name":  "symbol xterm",
+                                         "ok":  true,
+                                         "detail":  "count=438"
+                                     },
+                                     {
+                                         "name":  "symbol smartssh-bar",
+                                         "ok":  true,
+                                         "detail":  "count=21"
+                                     },
+                                     {
+                                         "name":  "symbol SMARTSSH_MEASURE",
+                                         "ok":  true,
+                                         "detail":  "count=11"
+                                     },
+                                     {
+                                         "name":  "tabby-terminal bundle has 0 user-facing \"Tabby\" strings",
+                                         "ok":  true,
+                                         "detail":  "count=0"
+                                     },
+                                     {
+                                         "name":  "portable exe produced",
+                                         "ok":  true,
+                                         "detail":  "smartssh-0.0.0-dev-portable-x64.exe"
+                                     },
+                                     {
+                                         "name":  "exe payload carries builtin-plugins",
+                                         "ok":  true,
+                                         "detail":  "1517 entries under resources/builtin-plugins/ via 7z, 1881 payload entries total"
+                                     },
+                                     {
+                                         "name":  "exe payload carries the three plugin package.json files",
+                                         "ok":  true,
+                                         "detail":  "resources/builtin-plugins/tabby-core/package.json,resources/builtin-plugins/tabby-settings/package.json,resources/builtin-plugins/tabby-terminal/package.json"
+                                     }
+                                 ],
+                      "symbols":  {
+                                      "file":  "dist/win-unpacked/resources/builtin-plugins/tabby-terminal/dist/index.js",
+                                      "bytes":  3424376,
+                                      "xterm":  438,
+                                      "smartssh-bar":  21,
+                                      "SMARTSSH_MEASURE":  11,
+                                      "createProposalService":  2,
+                                      "barModel":  10,
+                                      "metrics.json":  9,
+                                      "branding":  {
+                                                       "tabby-core":  930,
+                                                       "tabby-settings":  0,
+                                                       "tabby-terminal":  0
+                                                   }
+                                  },
+                      "exe":  {
+                                  "file":  "smartssh-0.0.0-dev-portable-x64.exe",
+                                  "bytes":  127726186,
+                                  "payload":  {
+                                                  "tool":  "7z",
+                                                  "payloadOffset":  420165,
+                                                  "entries":  1881,
+                                                  "builtinPluginsEntries":  1517,
+                                                  "pluginPackages":  [
+                                                                         "resources/builtin-plugins/tabby-core/package.json",
+                                                                         "resources/builtin-plugins/tabby-settings/package.json",
+                                                                         "resources/builtin-plugins/tabby-terminal/package.json"
+                                                                     ]
+                                              }
+                              }
+                  },
+    "artifacts":  {
+                      "portable":  {
+                                       "name":  "smartssh-0.0.0-dev-portable-x64.exe",
+                                       "sha256":  "D0D5DD674E7A4C2922EAB20698ADA8871CBE5E8091A84A08C588EE14B093DD2D",
+                                       "bytes":  127726186
+                                   },
+                      "setup":  {
+                                    "name":  "smartssh-0.0.0-dev-setup-x64.exe",
+                                    "sha256":  "2DD21A867B044AB6F22E2970B2A22ABEAD2D310AA9E29A65C27E8FFC35A5ED44",
+                                    "bytes":  144481995
+                                }
+                  }
+}
