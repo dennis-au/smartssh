@@ -61,7 +61,7 @@ export class Window {
         const bwOptions: BrowserWindowConstructorOptions = {
             width: 800,
             height: 600,
-            title: 'Tabby',
+            title: 'Smart SSH',
             minWidth: 400,
             minHeight: 300,
             webPreferences: {

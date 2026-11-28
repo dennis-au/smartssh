@@ -135,7 +135,7 @@ app.on('ready', async () => {
         window.focus()
     } catch (err) {
         logMainError('Failed to open window', err)
-        dialog.showErrorBox('Tabby failed to start', String(err?.stack ?? err))
+        dialog.showErrorBox('Smart SSH failed to start', String(err?.stack ?? err))
         app.exit(1)
     }
 })

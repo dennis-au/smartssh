@@ -27,6 +27,8 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
+import { findBrandingHits } from '../smartssh/verify/brandingRules.mjs'
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /** The three plugins the acceptance contract names; every one must be loadable. */
@@ -224,6 +226,30 @@ function main () {
                 check(`symbol ${symbol}`, required[symbol] > 0, `count=${required[symbol]}`)
             }
         }
+
+        // Branding: `productName`/`appId` are Smart SSH, but the Welcome page, the About box and the
+        // window-title fallbacks are compiled *into* these bundles from the plugin sources. The same
+        // whitelist as `smartssh/verify/check-branding.mjs` decides what counts as user-facing, so
+        // upstream provenance (npm scope, URLs, copyright, code symbols) cannot fail the build.
+        const brandingBundles = {}
+        for (const plugin of REQUIRED_PLUGINS) {
+            const bundle = path.join(pluginsDir, plugin, 'dist', 'index.js')
+            if (!fs.existsSync(bundle)) continue
+            const rel = path.relative(repoRoot, bundle).split(path.sep).join('/')
+            brandingBundles[plugin] = findBrandingHits(fs.readFileSync(bundle, 'utf8'), { file: rel })
+        }
+        const brandingCounts = Object.fromEntries(
+            Object.entries(brandingBundles).map(([plugin, hits]) => [plugin, hits.length])
+        )
+        symbols = { ...symbols, branding: brandingCounts }
+        const terminalBranding = brandingBundles['tabby-terminal']
+        check('tabby-terminal bundle has 0 user-facing "Tabby" strings',
+            terminalBranding !== undefined && terminalBranding.length === 0,
+            terminalBranding === undefined
+                ? 'tabby-terminal/dist/index.js is missing, so branding could not be read'
+                : terminalBranding.length === 0
+                    ? 'count=0'
+                    : `${terminalBranding.length} hit(s): ${terminalBranding.slice(0, 5).map((hit) => `${hit.line}: ${hit.text.slice(0, 120)}`).join(' | ')}`)
     }
 
     let exe = null
